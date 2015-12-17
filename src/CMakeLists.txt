@@ -540,6 +540,18 @@ if (WITH_CEPHFS)
                         ${BLKID_LIBRARIES} ${CMAKE_DL_LIBS})
 endif (WITH_CEPHFS)
 
+if (WITH_MGR)
+  set(mgr_srcs
+      ceph_mgr.cc
+      mgr/PyFormatter.cc
+      mgr/Mgr.cc)
+  add_executable(ceph-mgr ${mgr_srcs}
+                 $<TARGET_OBJECTS:heap_profiler_objs>)
+             set_target_properties(ceph-mgr PROPERTIES COMPILE_FLAGS "-I${PYTHON_INCLUDE_DIRS}")
+  target_link_libraries(ceph-mgr mds osdc global
+      ${PYTHON_LIBRARIES} ${BLKID_LIBRARIES} ${CMAKE_DL_LIBS} ${TCMALLOC_LIBS})
+endif (WITH_MGR)
+
 set(librados_config_srcs
   librados-config.cc)
 add_executable(librados-config ${librados_config_srcs})
@@ -1319,6 +1331,7 @@ add_custom_target(vstart DEPENDS
     ceph-osd
     ceph-mon
     ceph-mds
+    ceph-mgr
     ceph-authtool
     ceph-conf
     monmaptool

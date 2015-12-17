@@ -60,6 +60,11 @@ public:
     root = cursor = PyDict_New();
   }
 
+  virtual void set_status(int status, const char* status_name) {}
+  virtual void output_header() {};
+  virtual void output_footer() {};
+
+
   virtual void open_array_section(const char *name);
   void open_object_section(const char *name);
   void close_section()

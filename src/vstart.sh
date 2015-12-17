@@ -26,6 +26,7 @@ if [ -e CMakeCache.txt ]; then
   # Out of tree build, learn source location from CMakeCache.txt
   CEPH_ROOT=`grep Ceph_SOURCE_DIR CMakeCache.txt | cut -d "=" -f 2`
   CEPH_BUILD_DIR=`pwd`
+  [ -z "$PYFOO_PATH" ] && PYFOO_PATH=$CEPH_ROOT/src/pybind/mgr
 fi
 
 # use CEPH_BUILD_ROOT to vstart from a 'make install' 
@@ -491,6 +492,7 @@ fi
         keyring = $keyring_fn
         log file = $CEPH_OUT_DIR/\$name.\$pid.log
         admin socket = $CEPH_OUT_DIR/\$name.\$pid.asok
+        mgr_module_path = $PYFOO_PATH
 
 [mds]
 $DAEMONOPTS
