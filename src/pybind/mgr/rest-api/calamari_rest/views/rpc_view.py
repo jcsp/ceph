@@ -20,14 +20,10 @@ import time
 
 from rest_framework.response import Response
 
-try:
-    from zerorpc import LostRemote, RemoteError
-    import zerorpc
-except ImportError:
-    zerorpc = None
-
 from calamari_common.config import CalamariConfig
-from calamari_common.types import NotFound
+
+from calamari_common.types import OsdMap, SYNC_OBJECT_STR_TYPE, OSD, OSD_MAP, POOL, CLUSTER, CRUSH_RULE, ServiceId,\
+    NotFound, SERVER
 config = CalamariConfig()
 
 
@@ -39,38 +35,122 @@ class DataObject(object):
     def __init__(self, data):
         self.__dict__.update(data)
 
+# This is our magic hook into C++ land
+import ceph_state
 
-if zerorpc is not None:
-    class ProfiledRpcClient(zerorpc.Client):
-        # Finger in the air, over 100ms is too long
-        SLOW_THRESHOLD = 0.2
+class MgrClient(object):
+    def get_sync_object_wrapped(self, object_type):
+        if object_type == OsdMap:
+            data = self.get_sync_object(OSD_MAP)
+            return OsdMap(data['epoch'], data)
+        else:
+            raise NotImplementedError()
 
-        def __init__(self, *args, **kwargs):
-            super(ProfiledRpcClient, self).__init__(*args, **kwargs)
+    def get_sync_object(self, object_name, path=None):
+        if object_name == 'osd_map':
+            data = ceph_state.get("osdmap")
 
-            self.method_times = defaultdict(list)
+            data['tree'] = ceph_state.get("osdmap_tree")
+            data['crush'] = ceph_state.get("osdmap_crush")
+            data['crush_map_text'] = ceph_state.get("osdmap_crush_map_text")
+            # FIXME: implement sync of OSD metadata between mon and mgr
+            data['osd_metadata'] = []
+            obj = OsdMap(data['epoch'], data)
+        else:
+            raise NotImplementedError(object_name)
 
-        def _process_response(self, request_event, bufchan, timeout):
-            a = time.time()
-            result = super(ProfiledRpcClient, self)._process_response(request_event, bufchan, timeout)
-            b = time.time()
-            self.method_times[request_event.name].append(b - a)
+        # TODO: move 'path' handling up into C++ land so that we only
+        # Pythonize the part we're interested in
+        if path:
+            try:
+                for part in path:
+                    if isinstance(obj, dict):
+                        obj = obj[part]
+                    else:
+                        obj = getattr(obj, part)
+            except (AttributeError, KeyError) as e:
+                raise NotFound(object_name, path)
+
+        return obj
+
+    def get(self, fs_id, object_type, object_id):
+        """
+        Get one object from a particular cluster.
+        """
+
+        if object_type == OSD:
+            return self._osd_resolve(object_id)
+        elif object_type == POOL:
+            return self._pool_resolve(object_id)
+        else:
+            raise NotImplementedError(object_type)
+
+    def get_valid_commands(self, fs_id, object_type, object_ids):
+        """
+        Determine what commands can be run on OSD object_ids
+        """
+        # FIXME: reinstate
+        if False:
+            if object_type != OSD:
+                raise NotImplementedError(object_type)
+
+            cluster = self._fs_resolve(fs_id)
+            try:
+                valid_commands = cluster.get_valid_commands(object_type, object_ids)
+            except KeyError as e:
+                raise NotFound(object_type, str(e))
+
+            return valid_commands
+
+        return []
+
+    def _osd_resolve(self, cluster, osd_id):
+        osdmap = self.get_sync_object_wrapped(OsdMap)
+
+        try:
+            return osdmap.osds_by_id[osd_id]
+        except KeyError:
+            raise NotFound(OSD, osd_id)
+
+    def _pool_resolve(self, cluster, pool_id):
+        osdmap = self.get_sync_object_wrapped(OsdMap)
+
+        try:
+            return osdmap.pools_by_id[pool_id]
+        except KeyError:
+            raise NotFound(POOL, pool_id)
+
+    def server_by_service(self, services):
+        # FIXME: implement in terms of OSD metadata
+        return []
+
+    def list(self, fs_id, object_type, list_filter):
+        """
+        Get many objects
+        """
+
+        osd_map = self.get_sync_object(OSD_MAP).data
+        if osd_map is None:
+            return []
+        if object_type == OSD:
+            result = osd_map['osds']
+            if 'id__in' in list_filter:
+                result = [o for o in result if o['osd'] in list_filter['id__in']]
+            if 'pool' in list_filter:
+                try:
+                    osds_in_pool = self.get_sync_object_wrapped(OsdMap).osds_by_pool[list_filter['pool']]
+                except KeyError:
+                    raise NotFound("Pool {0} does not exist".format(list_filter['pool']))
+                else:
+                    result = [o for o in result if o['osd'] in osds_in_pool]
+
             return result
-
-        def report(self, log):
-            total = 0.0
-            for method_name, times in self.method_times.items():
-                for t in times:
-                    if t > self.SLOW_THRESHOLD:
-                        log.warn("Slow RPC '%s' (%sms)" % (method_name, t * 1000))
-                    total += t
-                log.debug("RPC timing for '%s': %s/%s/%s avg/min/max ms" % (
-                    method_name, sum(times) * 1000.0 / len(times), min(times) * 1000.0, max(times) * 1000.0
-                ))
-            log.debug("Total time in RPC: %sms" % (total * 1000))
-else:
-    class ProfiledRpcClient(object):
-        pass
+        elif object_type == POOL:
+            return osd_map['pools']
+        elif object_type == CRUSH_RULE:
+            return osd_map['crush']['rules']
+        else:
+            raise NotImplementedError(object_type)
 
 
 class RPCView(APIView):
@@ -78,22 +158,8 @@ class RPCView(APIView):
     log = logging.getLogger('django.request.profile')
 
     def __init__(self, *args, **kwargs):
-        if zerorpc is None:
-            raise RuntimeError("Cannot run without zerorpc")
-
         super(RPCView, self).__init__(*args, **kwargs)
-        self.client = ProfiledRpcClient()
-
-    def dispatch(self, request, *args, **kwargs):
-        self.client.connect(config.get('cthulhu', 'rpc_url'))
-        a = time.time()
-        try:
-            return super(RPCView, self).dispatch(request, *args, **kwargs)
-        finally:
-            b = time.time()
-            self.client.close()
-            self.log.debug("[%sms] %s" % ((b - a) * 1000.0, request.path))
-            self.client.report(self.log)
+        self.client = MgrClient()
 
     @property
     def help(self):
@@ -106,14 +172,6 @@ class RPCView(APIView):
     def handle_exception(self, exc):
         try:
             return super(RPCView, self).handle_exception(exc)
-        except LostRemote as e:
-            return Response({'detail': "RPC error ('%s')" % e},
-                            status=status.HTTP_503_SERVICE_UNAVAILABLE, exception=True)
-        except RemoteError as e:
-            if e.name == 'NotFound':
-                return Response(str(e.msg), status=status.HTTP_404_NOT_FOUND)
-            else:
-                raise
         except NotFound as e:
                 return Response(str(e), status=status.HTTP_404_NOT_FOUND)
 

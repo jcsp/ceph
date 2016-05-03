@@ -126,15 +126,12 @@ class OsdSerializer(ValidatingSerializer):
     _in = fields.BooleanField(required=False, help_text="Whether the OSD is 'in' the set of OSDs which will be used to store data")
     reweight = serializers.FloatField(required=False, help_text="CRUSH weight factor")
     server = serializers.CharField(read_only=True, help_text="FQDN of server this OSD was last running on")
-    pools = serializers.Field(help_text="List of pool IDs which use this OSD for storage")
+    pools = serializers.ListField(help_text="List of pool IDs which use this OSD for storage")
     valid_commands = serializers.CharField(read_only=True, help_text="List of commands that can be applied to this OSD")
 
     public_addr = serializers.CharField(read_only=True, help_text="Public/frontend IP address")
     cluster_addr = serializers.CharField(read_only=True, help_text="Cluster/backend IP address")
 
-# Declarative metaclass definitions are great until you want
-# to use a reserved word
-OsdSerializer.base_fields['in'] = OsdSerializer.base_fields['_in']
 
 
 class OsdConfigSerializer(ValidatingSerializer):
@@ -156,7 +153,6 @@ class OsdConfigSerializer(ValidatingSerializer):
     nodeepscrub = serializers.BooleanField(help_text="Disables automatic periodic deep scrub operations on OSDs. May still be initiated on demand", required=False)
 
 
-OsdConfigSerializer.base_fields['nodeep-scrub'] = OsdConfigSerializer.base_fields['nodeepscrub']
 
 
 class CrushRuleSerializer(serializers.Serializer):
@@ -171,7 +167,7 @@ class CrushRuleSerializer(serializers.Serializer):
         help_text="If a pool makes more replicas than this number, CRUSH will NOT select this rule")
     max_size = serializers.IntegerField(
         help_text="If a pool makes fewer replicas than this number, CRUSH will NOT select this rule")
-    steps = serializers.Field(help_text="List of operations used to select OSDs")
+    steps = serializers.ListField(help_text="List of operations used to select OSDs")
     osd_count = serializers.IntegerField(help_text="Number of OSDs which are used for data placement")
 
 
@@ -280,11 +276,6 @@ class EventSerializer(serializers.Serializer):
     def get_severity(self, obj):
         return severity_str(obj.severity)
 
-# django_rest_framework 2.3.12 doesn't let me put help_text on a methodfield
-# https://github.com/tomchristie/django-rest-framework/pull/1594
-EventSerializer.base_fields['severity'].help_text = "One of %s" % ",".join(SEVERITIES.values())
-
-
 class LogTailSerializer(serializers.Serializer):
     """
     Trivial serializer to wrap a string blob of log output
@@ -292,7 +283,7 @@ class LogTailSerializer(serializers.Serializer):
     class Meta:
         fields = ('lines',)
 
-    lines = serializers.CharField("Retrieved log data as a newline-separated string")
+    lines = serializers.CharField(help_text="Retrieved log data as a newline-separated string")
 
 
 class ConfigSettingSerializer(serializers.Serializer):
@@ -324,3 +315,19 @@ class CliSerializer(serializers.Serializer):
     out = serializers.CharField(help_text="Standard out")
     err = serializers.CharField(help_text="Standard error")
     status = serializers.IntegerField(help_text="Exit code")
+
+# Declarative metaclass definitions are great until you want
+# to use a reserved word
+if False:
+    # In django-rest-framework 2.3.x (Calamari used this)
+    OsdSerializer.base_fields['in'] = OsdSerializer.base_fields['_in']
+    OsdConfigSerializer.base_fields['nodeep-scrub'] = OsdConfigSerializer.base_fields['nodeepscrub']
+    # django_rest_framework 2.3.12 doesn't let me put help_text on a methodfield
+    # https://github.com/tomchristie/django-rest-framework/pull/1594
+    EventSerializer.base_fields['severity'].help_text = "One of %s" % ",".join(SEVERITIES.values())
+else:
+    OsdSerializer._declared_fields['in'] = OsdSerializer._declared_fields['_in']
+    OsdConfigSerializer._declared_fields['nodeep-scrub'] = OsdConfigSerializer._declared_fields['nodeepscrub']
+    EventSerializer._declared_fields['severity'].help_text = "One of %s" % ",".join(SEVERITIES.values())
+
+

@@ -10,16 +10,14 @@ from rest_framework import status
 from django.contrib.auth.decorators import login_required
 
 
-from calamari_common.remote import get_remote
-
 from calamari_rest.serializers.v2 import PoolSerializer, CrushRuleSetSerializer, CrushRuleSerializer, \
     ServerSerializer, SimpleServerSerializer, SaltKeySerializer, RequestSerializer, \
     ClusterSerializer, EventSerializer, LogTailSerializer, OsdSerializer, ConfigSettingSerializer, MonSerializer, OsdConfigSerializer, \
     CliSerializer
-from calamari_rest.views.database_view_set import DatabaseViewSet
+#from calamari_rest.views.database_view_set import DatabaseViewSet
 from calamari_rest.views.exceptions import ServiceUnavailable
-from calamari_rest.views.paginated_mixin import PaginatedMixin
-from calamari_rest.views.remote_view_set import RemoteViewSet
+#from calamari_rest.views.paginated_mixin import PaginatedMixin
+#from calamari_rest.views.remote_view_set import RemoteViewSet
 from calamari_rest.views.rpc_view import RPCViewSet, DataObject
 from calamari_common.types import CRUSH_RULE, POOL, OSD, USER_REQUEST_COMPLETE, USER_REQUEST_SUBMITTED, \
     OSD_IMPLEMENTED_COMMANDS, MON, OSD_MAP, SYNC_OBJECT_TYPES, ServiceId, severity_from_str, SEVERITIES
@@ -34,58 +32,45 @@ class Event(object):
     pass
 
 
-remote = get_remote()
-
 log = logging.getLogger('django.request')
 
-@api_view(['GET'])
-@login_required
-def grains(request):
-    """
-The salt grains for the host running Calamari server.  These are variables
-from Saltstack that tell us useful properties of the host.
 
-The fields in this resource are passed through verbatim from SaltStack, see
-the examples for which fields are available.
-    """
-    return Response(remote.get_local_metadata())
+if False:
+    class RequestViewSet(RPCViewSet, PaginatedMixin):
+        """
+    Calamari server requests, tracking long-running operations on the Calamari server.  Some
+    API resources return a ``202 ACCEPTED`` response with a request ID, which you can use with
+    this resource to learn about progress and completion of an operation.  This resource is
+    paginated.
 
+    May optionally filter by state by passing a ``?state=<state>`` GET parameter, where
+    state is one of 'complete', 'submitted'.
 
-class RequestViewSet(RPCViewSet, PaginatedMixin):
-    """
-Calamari server requests, tracking long-running operations on the Calamari server.  Some
-API resources return a ``202 ACCEPTED`` response with a request ID, which you can use with
-this resource to learn about progress and completion of an operation.  This resource is
-paginated.
+    The returned records are ordered by the 'requested_at' attribute, in descending order (i.e.
+    the first page of results contains the most recent requests).
 
-May optionally filter by state by passing a ``?state=<state>`` GET parameter, where
-state is one of 'complete', 'submitted'.
+    To cancel a request while it is running, send an empty POST to ``request/<request id>/cancel``.
+        """
+        serializer_class = RequestSerializer
 
-The returned records are ordered by the 'requested_at' attribute, in descending order (i.e.
-the first page of results contains the most recent requests).
+        def cancel(self, request, request_id):
+            user_request = DataObject(self.client.cancel_request(request_id))
+            return Response(self.serializer_class(user_request).data)
 
-To cancel a request while it is running, send an empty POST to ``request/<request id>/cancel``.
-    """
-    serializer_class = RequestSerializer
+        def retrieve(self, request, **kwargs):
+            request_id = kwargs['request_id']
+            user_request = DataObject(self.client.get_request(request_id))
+            return Response(self.serializer_class(user_request).data)
 
-    def cancel(self, request, request_id):
-        user_request = DataObject(self.client.cancel_request(request_id))
-        return Response(self.serializer_class(user_request).data)
+        def list(self, request, **kwargs):
+            fsid = kwargs.get('fsid', None)
+            filter_state = request.GET.get('state', None)
+            valid_states = [USER_REQUEST_COMPLETE, USER_REQUEST_SUBMITTED]
+            if filter_state is not None and filter_state not in valid_states:
+                raise ParseError("State must be one of %s" % ", ".join(valid_states))
 
-    def retrieve(self, request, **kwargs):
-        request_id = kwargs['request_id']
-        user_request = DataObject(self.client.get_request(request_id))
-        return Response(self.serializer_class(user_request).data)
-
-    def list(self, request, **kwargs):
-        fsid = kwargs.get('fsid', None)
-        filter_state = request.GET.get('state', None)
-        valid_states = [USER_REQUEST_COMPLETE, USER_REQUEST_SUBMITTED]
-        if filter_state is not None and filter_state not in valid_states:
-            raise ParseError("State must be one of %s" % ", ".join(valid_states))
-
-        requests = self.client.list_requests({'state': filter_state, 'fsid': fsid})
-        return Response(self._paginate(request, requests))
+            requests = self.client.list_requests({'state': filter_state, 'fsid': fsid})
+            return Response(self._paginate(request, requests))
 
 
 class CrushRuleViewSet(RPCViewSet):
@@ -97,7 +82,7 @@ together to a pool.
 
     def list(self, request, fsid):
         rules = self.client.list(fsid, CRUSH_RULE, {})
-        osds_by_rule_id = self.client.get_sync_object(fsid, 'osd_map', ['osds_by_rule_id'])
+        osds_by_rule_id = self.client.get_sync_object('osd_map', ['osds_by_rule_id'])
         for rule in rules:
             rule['osd_count'] = len(osds_by_rule_id[rule['rule_id']])
         return Response(CrushRuleSerializer([DataObject(r) for r in rules], many=True).data)
@@ -111,7 +96,7 @@ A CRUSH rule is used by Ceph to decide where to locate placement groups on OSDs.
 
     def list(self, request, fsid):
         rules = self.client.list(fsid, CRUSH_RULE, {})
-        osds_by_rule_id = self.client.get_sync_object(fsid, 'osd_map', ['osds_by_rule_id'])
+        osds_by_rule_id = self.client.get_sync_object('osd_map', ['osds_by_rule_id'])
         rulesets_data = defaultdict(list)
         for rule in rules:
             rule['osd_count'] = len(osds_by_rule_id[rule['rule_id']])
@@ -275,7 +260,7 @@ Configuration settings from a Ceph Cluster.
     serializer_class = ConfigSettingSerializer
 
     def _get_config(self, fsid):
-        ceph_config = self.client.get_sync_object(fsid, 'config')
+        ceph_config = self.client.get_sync_object('config')
         if not ceph_config:
             raise ServiceUnavailable("Cluster configuration unavailable")
         else:
@@ -313,10 +298,8 @@ but those without static defaults will be set to null.
 
     def _defaults(self, fsid):
         # Issue overlapped RPCs first
-        ceph_config = self.client.get_sync_object(fsid, 'config', async=True)
-        rules = self.client.list(fsid, CRUSH_RULE, {}, async=True)
-        ceph_config = ceph_config.get()
-        rules = rules.get()
+        ceph_config = self.client.get_sync_object('config')
+        rules = self.client.list(fsid, CRUSH_RULE, {})
 
         if not ceph_config:
             return Response("Cluster configuration unavailable", status=status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -428,7 +411,7 @@ but those without static defaults will be set to null.
                 errors['crush_ruleset'].append("CRUSH ruleset {0} not found".format(data['crush_ruleset']))
 
     def _check_pg_num_inside_config_bounds(self, fsid, data, errors):
-        ceph_config = self.client.get_sync_object(fsid, 'config')
+        ceph_config = self.client.get_sync_object('config')
         if not ceph_config:
             return Response("Cluster configuration unavailable", status=status.HTTP_503_SERVICE_UNAVAILABLE)
         if 'pg_num' in data and data['pg_num'] > int(ceph_config['mon_max_pool_pg_num']):
@@ -486,20 +469,13 @@ Filtering is available on this resource:
                 return Response("Invalid OSD ID in list", status=status.HTTP_400_BAD_REQUEST)
 
         # Get data
-        osds = self.client.list(fsid, OSD, list_filter, async=True)
-        osd_to_pools = self.client.get_sync_object(fsid, 'osd_map', ['osd_pools'], async=True)
-        crush_nodes = self.client.get_sync_object(fsid, 'osd_map', ['osd_tree_node_by_id'], async=True)
-        osds = osds.get()
+        osds = self.client.list(fsid, OSD, list_filter)
+        osd_to_pools = self.client.get_sync_object('osd_map', ['osd_pools'])
+        crush_nodes = self.client.get_sync_object('osd_map', ['osd_tree_node_by_id'])
 
         # Get data depending on OSD list
-        server_info = self.client.server_by_service([ServiceId(fsid, OSD, str(osd['osd'])) for osd in osds], async=True)
-        osd_commands = self.client.get_valid_commands(fsid, OSD, [x['osd'] for x in osds], async=True)
-
-        # Preparation complete, await all data to serialize result
-        osd_to_pools = osd_to_pools.get()
-        crush_nodes = crush_nodes.get()
-        server_info = server_info.get()
-        osd_commands = osd_commands.get()
+        server_info = self.client.server_by_service([ServiceId(fsid, OSD, str(osd['osd'])) for osd in osds])
+        osd_commands = self.client.get_valid_commands(fsid, OSD, [x['osd'] for x in osds])
 
         # Build OSD data objects
         for o in osds:
@@ -518,18 +494,20 @@ Filtering is available on this resource:
             o['pools'] = osd_to_pools[o['osd']]
 
         for o in osds:
-            o.update(osd_commands[o['osd']])
+            # FIXME: osd_commands currently empty
+            #o.update(osd_commands[o['osd']])
+            pass
 
         return Response(self.serializer_class([DataObject(o) for o in osds], many=True).data)
 
     @csrf_exempt
     def retrieve(self, request, fsid, osd_id):
-        osd = self.client.get_sync_object(fsid, 'osd_map', ['osds_by_id', int(osd_id)])
-        crush_node = self.client.get_sync_object(fsid, 'osd_map', ['osd_tree_node_by_id', int(osd_id)])
+        osd = self.client.get_sync_object('osd_map', ['osds_by_id', int(osd_id)])
+        crush_node = self.client.get_sync_object('osd_map', ['osd_tree_node_by_id', int(osd_id)])
         osd['reweight'] = float(crush_node['reweight'])
         osd['server'] = self.client.server_by_service([ServiceId(fsid, OSD, osd_id)])[0][1]
 
-        pools = self.client.get_sync_object(fsid, 'osd_map', ['osd_pools', int(osd_id)])
+        pools = self.client.get_sync_object('osd_map', ['osd_pools', int(osd_id)])
         osd['pools'] = pools
 
         osd_commands = self.client.get_valid_commands(fsid, OSD, [int(osd_id)])
@@ -556,7 +534,7 @@ Filtering is available on this resource:
     def get_valid_commands(self, request, fsid, osd_id=None):
         osds = []
         if osd_id is None:
-            osds = self.client.get_sync_object(fsid, 'osd_map', ['osds_by_id']).keys()
+            osds = self.client.get_sync_object('osd_map', ['osds_by_id']).keys()
         else:
             osds.append(int(osd_id))
 
@@ -575,7 +553,7 @@ Manage flags in the OsdMap
     serializer_class = OsdConfigSerializer
 
     def osd_config(self, request, fsid):
-        osd_map = self.client.get_sync_object(fsid, OSD_MAP, ['flags'])
+        osd_map = self.client.get_sync_object(OSD_MAP, ['flags'])
         return Response(osd_map)
 
     def update(self, request, fsid):
@@ -596,7 +574,7 @@ such as the cluster maps
     """
 
     def retrieve(self, request, fsid, sync_type):
-        return Response(self.client.get_sync_object(fsid, sync_type))
+        return Response(self.client.get_sync_object(sync_type))
 
     def describe(self, request, fsid):
         return Response([s.str for s in SYNC_OBJECT_TYPES])
@@ -645,42 +623,13 @@ all record of it from any/all clusters).
 
         return None
 
-    def _lookup_ifaces(self, servers):
-        """
-        Resolve the frontend/backend addresses (known
-        by cthulhu via Ceph) to network interfaces (known by salt from its
-        grains).
-        """
-        server_to_grains = remote.get_remote_metadata([s['fqdn'] for s in servers])
-
-        for server in servers:
-            fqdn = server['fqdn']
-            grains = server_to_grains[fqdn]
-            server['frontend_iface'] = None
-            server['backend_iface'] = None
-            if grains is None:
-                # No metadata available for this server
-                continue
-            else:
-                try:
-                    if server['frontend_addr']:
-                        server['frontend_iface'] = self._addr_to_iface(server['frontend_addr'], grains['ip_interfaces'])
-                    if server['backend_addr']:
-                        server['backend_iface'] = self._addr_to_iface(server['backend_addr'], grains['ip_interfaces'])
-                except KeyError:
-                    # Expected network metadata not available, we cannot infer
-                    # front/back interfaces so leave them null
-                    pass
-
     def list(self, request, fsid):
         servers = self.client.server_list_cluster(fsid)
-        self._lookup_ifaces(servers)
         return Response(self.serializer_class(
             [DataObject(s) for s in servers], many=True).data)
 
     def retrieve(self, request, fsid, fqdn):
         server = self.client.server_get_cluster(fqdn, fsid)
-        self._lookup_ifaces([server])
         return Response(self.serializer_class(DataObject(server)).data)
 
 
@@ -696,13 +645,6 @@ server then the FQDN will be modified to its correct value.
     """
     serializer_class = SimpleServerSerializer
 
-    def retrieve_grains(self, request, fqdn):
-        grains = remote.get_remote_metadata([fqdn])[fqdn]
-        if not grains:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        else:
-            return Response(grains)
-
     def retrieve(self, request, fqdn):
         return Response(
             self.serializer_class(DataObject(self.client.server_get(fqdn))).data
@@ -716,89 +658,91 @@ server then the FQDN will be modified to its correct value.
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class EventViewSet(DatabaseViewSet, PaginatedMixin):
-    """
-Events generated by Calamari server in response to messages from
-servers and Ceph clusters.  This resource is paginated.
-
-Note that events are not visible synchronously with respect to
-all other API resources.  For example, you might read the OSD
-map, see an OSD is down, then quickly read the events and find
-that the event about the OSD going down is not visible yet (though
-it would appear very soon after).
-
-The ``severity`` attribute mainly follows a typical INFO, WARN, ERROR
-hierarchy.  However, we have an additional level between INFO and WARN
-called RECOVERY.  Where something going bad in the system is usually
-a WARN message, the opposite state transition is usually a RECOVERY
-message.
-
-This resource supports "more severe than" filtering on the severity
-attribute.  Pass the desired severity threshold as a URL parameter
-in a GET, such as ``?severity=RECOVERY`` to show everything but INFO.
-
-    """
-    serializer_class = EventSerializer
-
-    @property
-    def queryset(self):
-        return self.session.query(Event).order_by(Event.when.desc())
-
-    def _filter_by_severity(self, request, queryset=None):
-        if queryset is None:
-            queryset = self.queryset
-        severity_str = request.GET.get("severity", "INFO")
-        try:
-            severity = severity_from_str(severity_str)
-        except KeyError:
-            raise ParseError("Invalid severity '%s', must be on of %s" % (severity_str,
-                                                                          ",".join(SEVERITIES.values())))
-
-        return queryset.filter(Event.severity <= severity)
-
-    def list(self, request):
-        return Response(self._paginate(request, self._filter_by_severity(request)))
-
-    def list_cluster(self, request, fsid):
-        return Response(self._paginate(request, self._filter_by_severity(request, self.queryset.filter_by(fsid=fsid))))
-
-    def list_server(self, request, fqdn):
-        return Response(self._paginate(request, self._filter_by_severity(request, self.queryset.filter_by(fqdn=fqdn))))
-
-
-class LogTailViewSet(RemoteViewSet):
-    """
-A primitive remote log viewer.
-
-Logs are retrieved on demand from the Ceph servers, so this resource will return a 503 error if no suitable
-server is available to get the logs.
-
-GETs take an optional ``lines`` parameter for the number of lines to retrieve.
-    """
-    serializer_class = LogTailSerializer
-
-    def get_cluster_log(self, request, fsid):
+if False:
+    class EventViewSet(DatabaseViewSet, PaginatedMixin):
         """
-        Retrieve the cluster log from one of a cluster's mons (expect it to be in /var/log/ceph/ceph.log)
+    Events generated by Calamari server in response to messages from
+    servers and Ceph clusters.  This resource is paginated.
+
+    Note that events are not visible synchronously with respect to
+    all other API resources.  For example, you might read the OSD
+    map, see an OSD is down, then quickly read the events and find
+    that the event about the OSD going down is not visible yet (though
+    it would appear very soon after).
+
+    The ``severity`` attribute mainly follows a typical INFO, WARN, ERROR
+    hierarchy.  However, we have an additional level between INFO and WARN
+    called RECOVERY.  Where something going bad in the system is usually
+    a WARN message, the opposite state transition is usually a RECOVERY
+    message.
+
+    This resource supports "more severe than" filtering on the severity
+    attribute.  Pass the desired severity threshold as a URL parameter
+    in a GET, such as ``?severity=RECOVERY`` to show everything but INFO.
+
         """
+        serializer_class = EventSerializer
 
-        # Number of lines to get
-        lines = request.GET.get('lines', 40)
+        @property
+        def queryset(self):
+            return self.session.query(Event).order_by(Event.when.desc())
 
-        # Resolve FSID to name
-        name = self.client.get_cluster(fsid)['name']
+        def _filter_by_severity(self, request, queryset=None):
+            if queryset is None:
+                queryset = self.queryset
+            severity_str = request.GET.get("severity", "INFO")
+            try:
+                severity = severity_from_str(severity_str)
+            except KeyError:
+                raise ParseError("Invalid severity '%s', must be on of %s" % (severity_str,
+                                                                              ",".join(SEVERITIES.values())))
 
-        # Execute remote operation synchronously
-        result = self.run_mon_job(fsid, "log_tail.tail", ["ceph/{name}.log".format(name=name), lines])
+            return queryset.filter(Event.severity <= severity)
 
-        return Response({'lines': result})
+        def list(self, request):
+            return Response(self._paginate(request, self._filter_by_severity(request)))
 
-    def list_server_logs(self, request, fqdn):
-        return Response(sorted(self.run_job(fqdn, "log_tail.list_logs", ["."])))
+        def list_cluster(self, request, fsid):
+            return Response(self._paginate(request, self._filter_by_severity(request, self.queryset.filter_by(fsid=fsid))))
 
-    def get_server_log(self, request, fqdn, log_path):
-        lines = request.GET.get('lines', 40)
-        return Response({'lines': self.run_job(fqdn, "log_tail.tail", [log_path, lines])})
+        def list_server(self, request, fqdn):
+            return Response(self._paginate(request, self._filter_by_severity(request, self.queryset.filter_by(fqdn=fqdn))))
+
+
+if False:
+    class LogTailViewSet(RemoteViewSet):
+        """
+    A primitive remote log viewer.
+
+    Logs are retrieved on demand from the Ceph servers, so this resource will return a 503 error if no suitable
+    server is available to get the logs.
+
+    GETs take an optional ``lines`` parameter for the number of lines to retrieve.
+        """
+        serializer_class = LogTailSerializer
+
+        def get_cluster_log(self, request, fsid):
+            """
+            Retrieve the cluster log from one of a cluster's mons (expect it to be in /var/log/ceph/ceph.log)
+            """
+
+            # Number of lines to get
+            lines = request.GET.get('lines', 40)
+
+            # Resolve FSID to name
+            name = self.client.get_cluster(fsid)['name']
+
+            # Execute remote operation synchronously
+            result = self.run_mon_job(fsid, "log_tail.tail", ["ceph/{name}.log".format(name=name), lines])
+
+            return Response({'lines': result})
+
+        def list_server_logs(self, request, fqdn):
+            return Response(sorted(self.run_job(fqdn, "log_tail.list_logs", ["."])))
+
+        def get_server_log(self, request, fqdn, log_path):
+            lines = request.GET.get('lines', 40)
+            return Response({'lines': self.run_job(fqdn, "log_tail.tail", [log_path, lines])})
 
 
 class MonViewSet(RPCViewSet):
@@ -819,7 +763,7 @@ useful to show users data from the /status sub-url, which returns the
     serializer_class = MonSerializer
 
     def _get_mons(self, fsid):
-        mon_status = self.client.get_sync_object(fsid, 'mon_status')
+        mon_status = self.client.get_sync_object('mon_status')
         if not mon_status:
             raise Http404("No mon data available")
 
@@ -914,52 +858,53 @@ useful to show users data from the /status sub-url, which returns the
         return Response(self.serializer_class([DataObject(m) for m in self._get_mons(fsid)], many=True).data)
 
 
-class CliViewSet(RemoteViewSet):
-    """
-Access the `ceph` CLI tool remotely.
+if False:
+    class CliViewSet(RemoteViewSet):
+        """
+    Access the `ceph` CLI tool remotely.
 
-To achieve the same result as running "ceph osd dump" at a shell, an
-API consumer may POST an object in either of the following formats:
+    To achieve the same result as running "ceph osd dump" at a shell, an
+    API consumer may POST an object in either of the following formats:
 
-::
+    ::
 
-    {'command': ['osd', 'dump']}
+        {'command': ['osd', 'dump']}
 
-    {'command': 'osd dump'}
+        {'command': 'osd dump'}
 
 
-The response will be a 200 status code if the command executed, regardless
-of whether it was successful, to check the result of the command itself
-read the ``status`` attribute of the returned data.
+    The response will be a 200 status code if the command executed, regardless
+    of whether it was successful, to check the result of the command itself
+    read the ``status`` attribute of the returned data.
 
-The command will be executed on the first available mon server, retrying
-on subsequent mon servers if no response is received.  Due to this retry
-behaviour, it is possible for the command to be run more than once in
-rare cases; since most ceph commands are idempotent this is usually
-not a problem.
-    """
-    serializer_class = CliSerializer
+    The command will be executed on the first available mon server, retrying
+    on subsequent mon servers if no response is received.  Due to this retry
+    behaviour, it is possible for the command to be run more than once in
+    rare cases; since most ceph commands are idempotent this is usually
+    not a problem.
+        """
+        serializer_class = CliSerializer
 
-    def create(self, request, fsid):
-        # Validate
-        try:
-            command = request.DATA['command']
-        except KeyError:
-            raise ParseError("'command' field is required")
-        else:
-            if not (isinstance(command, basestring) or isinstance(command, list)):
-                raise ParseError("'command' must be a string or list")
+        def create(self, request, fsid):
+            # Validate
+            try:
+                command = request.DATA['command']
+            except KeyError:
+                raise ParseError("'command' field is required")
+            else:
+                if not (isinstance(command, basestring) or isinstance(command, list)):
+                    raise ParseError("'command' must be a string or list")
 
-        # Parse string commands to list
-        if isinstance(command, basestring):
-            command = shlex.split(command)
+            # Parse string commands to list
+            if isinstance(command, basestring):
+                command = shlex.split(command)
 
-        name = self.client.get_cluster(fsid)['name']
-        result = self.run_mon_job(fsid, "ceph.ceph_command", [name, command])
-        log.debug("CliViewSet: result = '%s'" % result)
+            name = self.client.get_cluster(fsid)['name']
+            result = self.run_mon_job(fsid, "ceph.ceph_command", [name, command])
+            log.debug("CliViewSet: result = '%s'" % result)
 
-        if not isinstance(result, dict):
-            # Errors from salt like "module not available" come back as strings
-            raise APIException("Remote error: %s" % str(result))
+            if not isinstance(result, dict):
+                # Errors from salt like "module not available" come back as strings
+                raise APIException("Remote error: %s" % str(result))
 
-        return Response(self.serializer_class(DataObject(result)).data)
+            return Response(self.serializer_class(DataObject(result)).data)

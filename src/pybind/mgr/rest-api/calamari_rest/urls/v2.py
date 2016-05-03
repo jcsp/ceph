@@ -1,13 +1,9 @@
 
 from django.conf.urls import patterns, url, include
 from rest_framework import routers
-import calamari_rest.views.v1
 import calamari_rest.views.v2
 
 router = routers.DefaultRouter(trailing_slash=False)
-
-# Presentation of django.contrib.auth.models.User
-router.register(r'user', calamari_rest.views.v1.UserViewSet)
 
 # Information about each Ceph cluster (FSID), see sub-URLs
 router.register(r'cluster', calamari_rest.views.v2.ClusterViewSet, base_name='cluster')
@@ -16,27 +12,22 @@ urlpatterns = patterns(
     '',
 
     # About the host calamari server is running on
-    url(r'^grains', calamari_rest.views.v2.grains),
-    url(r'^info', calamari_rest.views.v1.Info.as_view()),
-
-    # Wrapping django auth
-    url(r'^auth/login', calamari_rest.views.v1.login),
-    url(r'^auth/logout', calamari_rest.views.v1.logout),
+    #url(r'^grains', calamari_rest.views.v2.grains),
 
     # This has to come after /user/me to make sure that special case is handled
     url(r'^', include(router.urls)),
 
     # About ongoing operations in cthulhu
-    url(r'^request/(?P<request_id>[a-zA-Z0-9-]+)/cancel$',
-        calamari_rest.views.v2.RequestViewSet.as_view({'post': 'cancel'}), name='request-cancel'),
-    url(r'^request/(?P<request_id>[a-zA-Z0-9-]+)$',
-        calamari_rest.views.v2.RequestViewSet.as_view({'get': 'retrieve'}), name='request-detail'),
-    url(r'^request$',
-        calamari_rest.views.v2.RequestViewSet.as_view({'get': 'list'}), name='request-list'),
-    url(r'^cluster/(?P<fsid>[a-zA-Z0-9-]+)/request/(?P<request_id>[a-zA-Z0-9-]+)$',
-        calamari_rest.views.v2.RequestViewSet.as_view({'get': 'retrieve'}), name='cluster-request-detail'),
-    url(r'^cluster/(?P<fsid>[a-zA-Z0-9-]+)/request$',
-        calamari_rest.views.v2.RequestViewSet.as_view({'get': 'list'}), name='cluster-request-list'),
+    #url(r'^request/(?P<request_id>[a-zA-Z0-9-]+)/cancel$',
+    #    calamari_rest.views.v2.RequestViewSet.as_view({'post': 'cancel'}), name='request-cancel'),
+    #url(r'^request/(?P<request_id>[a-zA-Z0-9-]+)$',
+    #    calamari_rest.views.v2.RequestViewSet.as_view({'get': 'retrieve'}), name='request-detail'),
+    #url(r'^request$',
+    #    calamari_rest.views.v2.RequestViewSet.as_view({'get': 'list'}), name='request-list'),
+    #url(r'^cluster/(?P<fsid>[a-zA-Z0-9-]+)/request/(?P<request_id>[a-zA-Z0-9-]+)$',
+    #    calamari_rest.views.v2.RequestViewSet.as_view({'get': 'retrieve'}), name='cluster-request-detail'),
+    #url(r'^cluster/(?P<fsid>[a-zA-Z0-9-]+)/request$',
+    #    calamari_rest.views.v2.RequestViewSet.as_view({'get': 'list'}), name='cluster-request-list'),
 
     # OSDs, Pools, CRUSH
     url(r'^cluster/(?P<fsid>[a-zA-Z0-9-]+)/crush_rule_set$', calamari_rest.views.v2.CrushRuleSetViewSet.as_view({'get': 'list'}),
@@ -87,7 +78,6 @@ urlpatterns = patterns(
     url(r'^server$', calamari_rest.views.v2.ServerViewSet.as_view({'get': 'list'})),
     url(r'^server/(?P<fqdn>[a-zA-Z0-9-\.]+)$',
         calamari_rest.views.v2.ServerViewSet.as_view({'get': 'retrieve', 'delete': 'destroy'})),
-    url(r'^server/(?P<fqdn>[a-zA-Z0-9-\.]+)/grains$', calamari_rest.views.v2.ServerViewSet.as_view({'get': 'retrieve_grains'})),
 
     url(r'^cluster/(?P<fsid>[a-zA-Z0-9-]+)/server$', calamari_rest.views.v2.ServerClusterViewSet.as_view({'get': 'list'}),
         name='cluster-server-list'),
@@ -100,19 +90,19 @@ urlpatterns = patterns(
         calamari_rest.views.v2.ConfigViewSet.as_view({'get': 'retrieve'})),
 
     # Events
-    url(r'^event$', calamari_rest.views.v2.EventViewSet.as_view({'get': 'list'})),
-    url(r'^cluster/(?P<fsid>[a-zA-Z0-9-]+)/event$', calamari_rest.views.v2.EventViewSet.as_view({'get': 'list_cluster'})),
-    url(r'^server/(?P<fqdn>[a-zA-Z0-9-\.]+)/event$', calamari_rest.views.v2.EventViewSet.as_view({'get': 'list_server'})),
+    #url(r'^event$', calamari_rest.views.v2.EventViewSet.as_view({'get': 'list'})),
+    #url(r'^cluster/(?P<fsid>[a-zA-Z0-9-]+)/event$', calamari_rest.views.v2.EventViewSet.as_view({'get': 'list_cluster'})),
+    #url(r'^server/(?P<fqdn>[a-zA-Z0-9-\.]+)/event$', calamari_rest.views.v2.EventViewSet.as_view({'get': 'list_server'})),
 
     # Log tail
-    url(r'^cluster/(?P<fsid>[a-zA-Z0-9-]+)/log$',
-        calamari_rest.views.v2.LogTailViewSet.as_view({'get': 'get_cluster_log'})),
-    url(r'^server/(?P<fqdn>[a-zA-Z0-9-\.]+)/log$',
-        calamari_rest.views.v2.LogTailViewSet.as_view({'get': 'list_server_logs'})),
-    url(r'^server/(?P<fqdn>[a-zA-Z0-9-\.]+)/log/(?P<log_path>.+)$',
-        calamari_rest.views.v2.LogTailViewSet.as_view({'get': 'get_server_log'})),
+    #url(r'^cluster/(?P<fsid>[a-zA-Z0-9-]+)/log$',
+    #    calamari_rest.views.v2.LogTailViewSet.as_view({'get': 'get_cluster_log'})),
+    #url(r'^server/(?P<fqdn>[a-zA-Z0-9-\.]+)/log$',
+    #    calamari_rest.views.v2.LogTailViewSet.as_view({'get': 'list_server_logs'})),
+    #url(r'^server/(?P<fqdn>[a-zA-Z0-9-\.]+)/log/(?P<log_path>.+)$',
+    #    calamari_rest.views.v2.LogTailViewSet.as_view({'get': 'get_server_log'})),
 
     # Ceph CLI access
-    url(r'^cluster/(?P<fsid>[a-zA-Z0-9-]+)/cli$',
-        calamari_rest.views.v2.CliViewSet.as_view({'post': 'create'}))
+    #url(r'^cluster/(?P<fsid>[a-zA-Z0-9-]+)/cli$',
+    #    calamari_rest.views.v2.CliViewSet.as_view({'post': 'create'}))
 )

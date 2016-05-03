@@ -12,7 +12,6 @@ urlpatterns = patterns(
     # finds the views by name.
     url(r'^api/rest_framework/', include('rest_framework.urls', namespace='rest_framework')),
 
-    url(r'^api/v1/', include('calamari_rest.urls.v1')),
     url(r'^api/v2/', include('calamari_rest.urls.v2')),
 )
 

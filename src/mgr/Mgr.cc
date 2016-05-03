@@ -202,10 +202,23 @@ PyObject *Mgr::get_python(const std::string &what)
     PyFormatter f;
     mdsmap->dump(&f);
     return f.get();
-  } else if (what == "osdmap") {
+  } else if (what == "osdmap_crush_map_text") {
+    bufferlist rdata;
+    objecter->with_osdmap([&rdata](const OSDMap &osd_map){
+      osd_map.crush->encode(rdata);
+    });
+    std::string crush_text = rdata.to_str();
+    return PyString_FromString(crush_text.c_str());
+  } else if (what.substr(0, 6) == "osdmap") {
     PyFormatter f;
-    objecter->with_osdmap([&f](const OSDMap &osd_map){
-      osd_map.dump(&f);
+    objecter->with_osdmap([&f,&what](const OSDMap &osd_map){
+      if (what == "osdmap") {
+        osd_map.dump(&f);
+      } else if (what == "osdmap_tree") {
+        osd_map.print_tree(&f, nullptr);
+      } else if (what == "osdmap_crush") {
+        osd_map.crush->dump(&f);
+      }
     });
     return f.get();
   } else {
@@ -232,7 +245,7 @@ int Mgr::main(vector<const char *> args)
   // embed them in the ceph package.  site-packages is an interpreter-specific
   // thing, so as an embedded interpreter we're responsible for picking
   // this.  FIXME: don't hardcode this.
-  std::string site_packages = "/usr/lib/python2.7/site-packages:/usr/lib64/python2.7/site-packages";
+  std::string site_packages = "/usr/lib/python2.7/site-packages:/usr/lib64/python2.7/site-packages:/usr/lib64/python2.7";
   sys_path += ":";
   sys_path += site_packages;
 
