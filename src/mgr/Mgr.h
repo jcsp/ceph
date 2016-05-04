@@ -38,7 +38,12 @@ protected:
   Objecter *objecter;
   MDSMap *mdsmap;
   Messenger *messenger;
+
+public:
+  // FIXME just exposing this for the moment
+  // for ceph_send_command
   MonClient *monc;
+protected:
 
   Mutex lock;
   SafeTimer timer;

@@ -2,7 +2,6 @@ from contextlib import contextmanager
 from gevent.lock import RLock
 import datetime
 
-from calamari_common.remote import get_remote
 from cthulhu.gevent_util import nosleep
 from cthulhu.manager.user_request import UserRequest
 from cthulhu.log import log as cthulhu_log
@@ -27,16 +26,12 @@ class RequestCollection(object):
     wake up in a different world.
     """
 
-    def __init__(self, manager):
+    def __init__(self):
         super(RequestCollection, self).__init__()
 
         self._by_request_id = {}
         self._by_jid = {}
         self._lock = RLock()
-
-        self._remote = get_remote()
-
-        self._manager = manager
 
     def get_by_id(self, request_id):
         return self._by_request_id[request_id]
@@ -159,7 +154,6 @@ class RequestCollection(object):
             request.submit(minion)
             self._by_request_id[request.id] = request
             self._by_jid[request.jid] = request
-        self._manager.eventer.on_user_request_begin(request)
 
     def on_map(self, fsid, sync_type, sync_object):
         """
@@ -188,9 +182,6 @@ class RequestCollection(object):
 
                     request.set_error("Internal error %s" % e)
                     request.complete()
-
-                if request.state == UserRequest.COMPLETE:
-                    self._manager.eventer.on_user_request_complete(request)
 
     def _on_rados_completion(self, minion_id, request, result):
         """
@@ -284,9 +275,6 @@ class RequestCollection(object):
                 # General case successful JID other than rados_command
                 with self._update_index(request):
                     request.complete_jid(result)
-
-        if request.state == UserRequest.COMPLETE:
-            self._manager.eventer.on_user_request_complete(request)
 
     def _update_index(self, request):
         """

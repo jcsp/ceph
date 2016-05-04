@@ -38,7 +38,10 @@ class DataObject(object):
 # This is our magic hook into C++ land
 import ceph_state
 
+
 class MgrClient(object):
+    cluster_monitor = None
+
     def get_sync_object_wrapped(self, object_type):
         if object_type == OsdMap:
             data = self.get_sync_object(OSD_MAP)

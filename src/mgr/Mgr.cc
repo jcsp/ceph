@@ -3,7 +3,7 @@
 /*
  * Ceph - scalable distributed file system
  *
- * Copyright (C) 2014 John Spray <john.spray@inktank.com>
+ * Copyright (C) 2016 John Spray <john.spray@redhat.com>
  *
  * This is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -12,10 +12,10 @@
  */
 
 #include "Mgr.h"
+#include "PyState.h"
 
 #include "mon/MonClient.h"
 #include "PyFormatter.h"
-
 
 #include "global/global_context.h"
 
@@ -35,6 +35,9 @@ Mgr::Mgr() :
   monc = new MonClient(g_ceph_context);
   messenger = Messenger::create_client_messenger(g_ceph_context, "mds");
   mdsmap = new MDSMap();
+
+  // FIXME: using objecter as convenience to handle incremental
+  // OSD maps, but that's overkill.  We don't really need an objecter.
   objecter = new Objecter(g_ceph_context, messenger, monc, NULL, 0, 0);
 }
 
@@ -137,6 +140,8 @@ bool Mgr::ms_dispatch(Message *m)
 {
    Mutex::Locker locker(lock);
    switch (m->get_type()) {
+   case CEPH_MSG_MON_MAP:
+     break;
    case CEPH_MSG_MDS_MAP:
      handle_mds_map((MMDSMap*)m);
      break;
@@ -173,28 +178,6 @@ bool Mgr::ms_get_authorizer(int dest_type, AuthAuthorizer **authorizer,
   *authorizer = monc->auth->build_authorizer(dest_type);
   return *authorizer != NULL;
 }
-
-
-
-static Mgr *global_handle = NULL;
-
-static PyObject*
-ceph_state_get(PyObject *self, PyObject *args)
-{
-  char *what = NULL;
-  if (!PyArg_ParseTuple(args, "s:ceph_state_get", &what)) {
-    return NULL;
-  }
-
-  return global_handle->get_python(what);
-}
-
-static PyMethodDef CephStateMethods[] = {
-    {"get", ceph_state_get, METH_VARARGS,
-     "Get a cluster object"},
-    {NULL, NULL, 0, NULL}
-};
-
 
 PyObject *Mgr::get_python(const std::string &what)
 {
@@ -254,6 +237,12 @@ int Mgr::main(vector<const char *> args)
   dout(10) << "Computed sys.path '" << sys_path << "'" << dendl;
   PySys_SetPath((char*)(sys_path.c_str()));
 
+  // Let CPython know that we will be calling it back from other
+  // threads in future.
+  if (! PyEval_ThreadsInitialized()) {
+    PyEval_InitThreads();
+  }
+
   // Construct pModule
   // TODO load mgr_modules list, run them all in a thread each.
   pName = PyString_FromString("rest");
@@ -262,6 +251,7 @@ int Mgr::main(vector<const char *> args)
 
   if (pModule != NULL) {
       pFunc = PyObject_GetAttrString(pModule, "serve");
+      //pNotify = PyObject_GetAttrString(pModule, "notify");
       if (pFunc && PyCallable_Check(pFunc)) {
           pArgs = PyTuple_New(0);
           pValue = PyObject_CallObject(pFunc, pArgs);
@@ -274,8 +264,7 @@ int Mgr::main(vector<const char *> args)
               PyErr_Print();
               return 1;
           }
-      }
-      else {
+      } else {
           if (PyErr_Occurred())
               PyErr_Print();
       }

@@ -544,6 +544,7 @@ if (WITH_MGR)
   set(mgr_srcs
       ceph_mgr.cc
       mgr/PyFormatter.cc
+      mgr/PyState.cc
       mgr/Mgr.cc)
   add_executable(ceph-mgr ${mgr_srcs}
                  $<TARGET_OBJECTS:heap_profiler_objs>)
