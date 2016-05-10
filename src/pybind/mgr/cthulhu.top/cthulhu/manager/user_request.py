@@ -444,7 +444,7 @@ class PgCreatingRequest(OsdMapModifyingRequest):
     OSD_MAP_WAIT = 'osd_map_wait'
     PG_MAP_WAIT = 'pg_map_wait'
 
-    def __init__(self, headline, fsid, cluster_name, commands,
+    def __init__(self, headline, commands,
                  pool_id, pool_name, pgp_num,
                  initial_pg_count, final_pg_count, block_size):
         """
@@ -479,13 +479,8 @@ class PgCreatingRequest(OsdMapModifyingRequest):
         else:
             return super(PgCreatingRequest, self).status
 
-    def complete_jid(self, result):
-        # No matter at what stage, the next thing to do after completing
-        # a JID is to wait for the resulting change to the OSD map
-        assert self._phase == self.JID_WAIT
-        self.jid = None
-        self.result = result
-        self._await_version = result['versions']['osd_map']
+    def complete_jid(self):
+        self._await_version = json.loads(self.rados_commands.outb)['epoch']
         self._phase = self.OSD_MAP_WAIT
 
     @property

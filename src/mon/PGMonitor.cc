@@ -2545,5 +2545,6 @@ void PGMonitor::check_sub(Subscription *sub)
                                   sub->session->con.get(),
                                   sub->next);
     }
+  } else if (sub->type == "pgmap") {
   }
 }

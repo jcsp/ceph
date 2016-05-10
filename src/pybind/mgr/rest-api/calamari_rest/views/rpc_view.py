@@ -20,9 +20,10 @@ from calamari_common.types import OsdMap, SYNC_OBJECT_STR_TYPE, OSD, OSD_MAP, PO
     NotFound, SERVER
 config = CalamariConfig()
 
-
+from rest import state as rest_state
 from mgr_log import log
 from mgr_data import get_sync_object as mgr_get_sync_object
+
 
 class DataObject(object):
     """
@@ -31,14 +32,6 @@ class DataObject(object):
     """
     def __init__(self, data):
         self.__dict__.update(data)
-
-# This is our magic hook into C++ land
-import ceph_state
-
-from rest import state as rest_state
-
-
-from mgr_log import log
 
 
 class MgrClient(object):
@@ -53,7 +46,7 @@ class MgrClient(object):
     def get_sync_object(self, object_type, path=None):
         return mgr_get_sync_object(object_type, path)
 
-    def get(self, fs_id, object_type, object_id):
+    def get(self, object_type, object_id):
         """
         Get one object from a particular cluster.
         """

@@ -161,7 +161,8 @@ bool Mgr::ms_dispatch(Message *m)
    case CEPH_MSG_OSD_MAP:
      notify_all("osd_map", "");
 
-     // Continuous subscribe
+     // Continuous subscribe, so that we can generate notifications
+     // for our MgrPyModules
      objecter->maybe_request_map();
      break;
    default:
@@ -211,7 +212,7 @@ PyObject *Mgr::get_python(const std::string &what)
     return PyString_FromString(crush_text.c_str());
   } else if (what.substr(0, 7) == "osd_map") {
     PyFormatter f;
-    objecter->with_osdmap([&f,&what](const OSDMap &osd_map){
+    objecter->with_osdmap([&f, &what](const OSDMap &osd_map){
       if (what == "osd_map") {
         osd_map.dump(&f);
       } else if (what == "osd_map_tree") {
@@ -220,6 +221,10 @@ PyObject *Mgr::get_python(const std::string &what)
         osd_map.crush->dump(&f);
       }
     });
+    return f.get();
+  } else if (what == "config") {
+    PyFormatter f;
+    g_conf->show_config(&f);
     return f.get();
   } else {
     derr << "Python module requested unknown data '" << what << "'" << dendl;

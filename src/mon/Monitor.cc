@@ -4292,6 +4292,8 @@ void Monitor::handle_subscribe(MonOpRequestRef op)
       if ((int)s->is_capable("osd", MON_CAP_W)) {
 	pgmon()->check_sub(s->sub_map["osd_pg_creates"]);
       }
+    } else if (p->first == "pgmap") {
+      pgmon()->check_sub(s->sub_map["pgmap"]);
     } else if (p->first == "monmap") {
       check_sub(s->sub_map["monmap"]);
     } else if (logmon()->sub_name_to_id(p->first) >= 0) {

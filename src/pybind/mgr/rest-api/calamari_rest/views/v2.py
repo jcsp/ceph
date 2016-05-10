@@ -21,7 +21,7 @@ from calamari_rest.views.exceptions import ServiceUnavailable
 from calamari_rest.views.rpc_view import RPCViewSet, DataObject
 from calamari_common.types import CRUSH_RULE, POOL, OSD, USER_REQUEST_COMPLETE, USER_REQUEST_SUBMITTED, \
     OSD_IMPLEMENTED_COMMANDS, MON, OSD_MAP, SYNC_OBJECT_TYPES, ServiceId, severity_from_str, SEVERITIES, \
-    OsdMap
+    OsdMap, Config
 
 # This is our magic hook into C++ land
 import ceph_state
@@ -228,20 +228,13 @@ Configuration settings from a Ceph Cluster.
     """
     serializer_class = ConfigSettingSerializer
 
-    def _get_config(self):
-        ceph_config = self.client.get_sync_object('config')
-        if not ceph_config:
-            raise ServiceUnavailable("Cluster configuration unavailable")
-        else:
-            return ceph_config
-
     def list(self, request):
-        ceph_config = self._get_config(fsid)
+        ceph_config = self.client.get_sync_object(Config).data
         settings = [DataObject({'key': k, 'value': v}) for (k, v) in ceph_config.items()]
         return Response(self.serializer_class(settings, many=True).data)
 
     def retrieve(self, request, key):
-        ceph_config = self._get_config(fsid)
+        ceph_config = self.client.get_sync_object(Config).data
         try:
             setting = DataObject({'key': key, 'value': ceph_config[key]})
         except KeyError:
@@ -267,7 +260,7 @@ but those without static defaults will be set to null.
 
     def _defaults(self):
         # Issue overlapped RPCs first
-        ceph_config = self.client.get_sync_object('config')
+        ceph_config = self.client.get_sync_object(Config)
         rules = self.client.list(CRUSH_RULE, {})
 
         if not ceph_config:
@@ -380,7 +373,7 @@ but those without static defaults will be set to null.
                 errors['crush_ruleset'].append("CRUSH ruleset {0} not found".format(data['crush_ruleset']))
 
     def _check_pg_num_inside_config_bounds(self, data, errors):
-        ceph_config = self.client.get_sync_object('config')
+        ceph_config = self.client.get_sync_object(Config)
         if not ceph_config:
             return Response("Cluster configuration unavailable", status=status.HTTP_503_SERVICE_UNAVAILABLE)
         if 'pg_num' in data and data['pg_num'] > int(ceph_config['mon_max_pool_pg_num']):

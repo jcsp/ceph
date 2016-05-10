@@ -2,10 +2,8 @@
 
 # This is our magic hook into C++ land
 import ceph_state
-from calamari_common.types import OsdMap, NotFound
-
-from mgr_log import log
-import json
+from calamari_common.types import OsdMap, NotFound, Config, MdsMap, MonMap, \
+    MonStatus, PgSummary, Health
 
 
 def get_sync_object(object_type, path=None):
@@ -19,6 +17,19 @@ def get_sync_object(object_type, path=None):
         # FIXME: implement sync of OSD metadata between mon and mgr
         data['osd_metadata'] = []
         obj = OsdMap(data['epoch'], data)
+    elif object_type == Config:
+        data = ceph_state.get("config")
+        obj = Config(0, data)
+    # elif object_type == MdsMap:
+    #     pass
+    # elif object_type == MonMap:
+    #     pass
+    # elif object_type == MonStatus:
+    #     pass
+    elif object_type == PgSummary:
+        pass
+    # elif object_type == Health:
+    #     pass
     else:
         raise NotImplementedError(object_type)
 
