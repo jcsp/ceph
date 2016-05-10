@@ -4,19 +4,13 @@
 Helpers for writing django views and rest_framework ViewSets that get
 their data from cthulhu with zeroRPC
 """
-from collections import defaultdict
-import logging
 
-# Suppress warning from ZeroRPC's use of old gevent API
-import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning,
-                        message=".*Queue\(0\) now equivalent to Queue\(None\);.*")
-warnings.filterwarnings("ignore", category=DeprecationWarning,
-                        message=".*gevent.coros has been renamed to gevent.lock.*")
+
+from cthulhu.manager.osd_request_factory import OsdRequestFactory
+from cthulhu.manager.pool_request_factory import PoolRequestFactory
 
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
-import time
 
 from rest_framework.response import Response
 
@@ -26,6 +20,9 @@ from calamari_common.types import OsdMap, SYNC_OBJECT_STR_TYPE, OSD, OSD_MAP, PO
     NotFound, SERVER
 config = CalamariConfig()
 
+
+from mgr_log import log
+from mgr_data import get_sync_object as mgr_get_sync_object
 
 class DataObject(object):
     """
@@ -38,43 +35,23 @@ class DataObject(object):
 # This is our magic hook into C++ land
 import ceph_state
 
+from rest import state as rest_state
+
+
+from mgr_log import log
+
 
 class MgrClient(object):
     cluster_monitor = None
 
-    def get_sync_object_wrapped(self, object_type):
-        if object_type == OsdMap:
-            data = self.get_sync_object(OSD_MAP)
-            return OsdMap(data['epoch'], data)
-        else:
-            raise NotImplementedError()
+    def __init__(self):
+        self._request_factories = {
+            OSD: OsdRequestFactory,
+            POOL: PoolRequestFactory
+        }
 
-    def get_sync_object(self, object_name, path=None):
-        if object_name == 'osd_map':
-            data = ceph_state.get("osdmap")
-
-            data['tree'] = ceph_state.get("osdmap_tree")
-            data['crush'] = ceph_state.get("osdmap_crush")
-            data['crush_map_text'] = ceph_state.get("osdmap_crush_map_text")
-            # FIXME: implement sync of OSD metadata between mon and mgr
-            data['osd_metadata'] = []
-            obj = OsdMap(data['epoch'], data)
-        else:
-            raise NotImplementedError(object_name)
-
-        # TODO: move 'path' handling up into C++ land so that we only
-        # Pythonize the part we're interested in
-        if path:
-            try:
-                for part in path:
-                    if isinstance(obj, dict):
-                        obj = obj[part]
-                    else:
-                        obj = getattr(obj, part)
-            except (AttributeError, KeyError) as e:
-                raise NotFound(object_name, path)
-
-        return obj
+    def get_sync_object(self, object_type, path=None):
+        return mgr_get_sync_object(object_type, path)
 
     def get(self, fs_id, object_type, object_id):
         """
@@ -88,35 +65,31 @@ class MgrClient(object):
         else:
             raise NotImplementedError(object_type)
 
-    def get_valid_commands(self, fs_id, object_type, object_ids):
+    def get_valid_commands(self, object_type, object_ids):
         """
         Determine what commands can be run on OSD object_ids
         """
-        # FIXME: reinstate
-        if False:
-            if object_type != OSD:
-                raise NotImplementedError(object_type)
+        if object_type != OSD:
+            raise NotImplementedError(object_type)
 
-            cluster = self._fs_resolve(fs_id)
-            try:
-                valid_commands = cluster.get_valid_commands(object_type, object_ids)
-            except KeyError as e:
-                raise NotFound(object_type, str(e))
+        try:
+            valid_commands = self.get_request_factory(
+                object_type).get_valid_commands(object_ids)
+        except KeyError as e:
+            raise NotFound(object_type, str(e))
 
-            return valid_commands
+        return valid_commands
 
-        return []
-
-    def _osd_resolve(self, cluster, osd_id):
-        osdmap = self.get_sync_object_wrapped(OsdMap)
+    def _osd_resolve(self, osd_id):
+        osdmap = self.get_sync_object(OsdMap)
 
         try:
             return osdmap.osds_by_id[osd_id]
         except KeyError:
             raise NotFound(OSD, osd_id)
 
-    def _pool_resolve(self, cluster, pool_id):
-        osdmap = self.get_sync_object_wrapped(OsdMap)
+    def _pool_resolve(self, pool_id):
+        osdmap = self.get_sync_object(OsdMap)
 
         try:
             return osdmap.pools_by_id[pool_id]
@@ -127,12 +100,50 @@ class MgrClient(object):
         # FIXME: implement in terms of OSD metadata
         return []
 
-    def list(self, fs_id, object_type, list_filter):
+    def list_requests(self, filter_args):
+        state = filter_args.get('state', None)
+        fsid = filter_args.get('fsid', None)
+        requests = rest_state.requests.get_all()
+        return sorted([self._dump_request(r)
+                       for r in requests
+                       if (state is None or r.state == state) and (fsid is None or r.fsid == fsid)],
+                      lambda a, b: cmp(b['requested_at'], a['requested_at']))
+
+    def _dump_request(self, request):
+        """UserRequest to JSON-serializable form"""
+        return {
+            'id': request.id,
+            'state': request.state,
+            'error': request.error,
+            'error_message': request.error_message,
+            'status': request.status,
+            'headline': request.headline,
+            'requested_at': request.requested_at.isoformat(),
+            'completed_at': request.completed_at.isoformat() if request.completed_at else None
+        }
+
+    def get_request(self, request_id):
+        """
+        Get a JSON representation of a UserRequest
+        """
+        try:
+            return self._dump_request(state.requests.get_by_id(request_id))
+        except KeyError:
+            raise NotFound('request', request_id)
+
+    def cancel_request(self, request_id):
+        try:
+            state.requests.cancel(request_id)
+            return self.get_request(request_id)
+        except KeyError:
+            raise NotFound('request', request_id)
+
+    def list(self, object_type, list_filter):
         """
         Get many objects
         """
 
-        osd_map = self.get_sync_object(OSD_MAP).data
+        osd_map = self.get_sync_object(OsdMap).data
         if osd_map is None:
             return []
         if object_type == OSD:
@@ -141,7 +152,7 @@ class MgrClient(object):
                 result = [o for o in result if o['osd'] in list_filter['id__in']]
             if 'pool' in list_filter:
                 try:
-                    osds_in_pool = self.get_sync_object_wrapped(OsdMap).osds_by_pool[list_filter['pool']]
+                    osds_in_pool = self.get_sync_object(OsdMap).osds_by_pool[list_filter['pool']]
                 except KeyError:
                     raise NotFound("Pool {0} does not exist".format(list_filter['pool']))
                 else:
@@ -155,10 +166,73 @@ class MgrClient(object):
         else:
             raise NotImplementedError(object_type)
 
+    def request_delete(self, obj_type, obj_id):
+        return self._request('delete', obj_type, obj_id)
+
+    def request_create(self, obj_type, attributes):
+        return self._request('create', obj_type, attributes)
+
+    def request_update(self, command, obj_type, obj_id, attributes):
+        return self._request(command, obj_type, obj_id, attributes)
+
+    def request_apply(self, obj_type, obj_id, command):
+        return self._request(command, obj_type, obj_id)
+
+    def update(self, object_type, object_id, attributes):
+        """
+        Modify an object in a cluster.
+        """
+
+        if object_type == OSD:
+            # Run a resolve to throw exception if it's unknown
+            self._osd_resolve(object_id)
+            if 'id' not in attributes:
+                attributes['id'] = object_id
+
+            return self.request_update('update', OSD, object_id, attributes)
+        elif object_type == POOL:
+            self._pool_resolve(object_id)
+            if 'id' not in attributes:
+                attributes['id'] = object_id
+
+            return self.request_update('update', POOL, object_id, attributes)
+        elif object_type == OSD_MAP:
+            return self.request_update('update_config', OSD, object_id, attributes)
+
+        else:
+            raise NotImplementedError(object_type)
+
+    def get_request_factory(self, object_type):
+        try:
+            return self._request_factories[object_type]()
+        except KeyError:
+            raise ValueError("{0} is not one of {1}".format(object_type, self._request_factories.keys()))
+
+    def _request(self, method, obj_type, *args, **kwargs):
+        """
+        Create and submit UserRequest for an apply, create, update or delete.
+        """
+
+        # nosleep during preparation phase (may touch ClusterMonitor/ServerMonitor state)
+        request_factory = self.get_request_factory(obj_type)
+        request = getattr(request_factory, method)(*args, **kwargs)
+
+        from rest import state
+
+        if request:
+            # sleeps permitted during terminal phase of submitting, because we're
+            # doing I/O to the salt master to kick off
+            state.requests.submit(request)
+            return {
+                'request_id': request.id
+            }
+        else:
+            return None
+
 
 class RPCView(APIView):
     serializer_class = None
-    log = logging.getLogger('django.request.profile')
+    log = log
 
     def __init__(self, *args, **kwargs):
         super(RPCView, self).__init__(*args, **kwargs)

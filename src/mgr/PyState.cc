@@ -27,13 +27,15 @@ Mgr *global_handle = NULL;
 
 class MonCommandCompletion : public Context
 {
+  PyObject *python_completion;
+  const std::string tag;
+
 public:
   std::string outs;
   bufferlist outbl;
-  PyObject *python_completion;
 
-  MonCommandCompletion(PyObject* ev)  
-    : python_completion(ev)
+  MonCommandCompletion(PyObject* ev, const std::string &tag_)
+    : python_completion(ev), tag(tag_)
   {
     assert(python_completion != nullptr);
     Py_INCREF(python_completion);
@@ -67,6 +69,8 @@ public:
     Py_DECREF(args);
 
     PyGILState_Release(gstate);
+
+    global_handle->notify_all("command", tag);
   }
 };
 
@@ -75,9 +79,10 @@ static PyObject*
 ceph_send_command(PyObject *self, PyObject *args)
 {
   char *cmd_json = nullptr;
+  char *tag = nullptr;
   PyObject *completion = nullptr;
-  if (!PyArg_ParseTuple(args, "Os:ceph_send_command",
-        &completion, &cmd_json)) {
+  if (!PyArg_ParseTuple(args, "Oss:ceph_send_command",
+        &completion, &cmd_json, &tag)) {
     return nullptr;
   }
 
@@ -89,7 +94,7 @@ ceph_send_command(PyObject *self, PyObject *args)
   }
   Py_DECREF(set_fn);
 
-  auto c = new MonCommandCompletion(completion);
+  auto c = new MonCommandCompletion(completion, tag);
   auto r = global_handle->monc->start_mon_command(
       {cmd_json},
       {},

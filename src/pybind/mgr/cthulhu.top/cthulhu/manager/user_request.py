@@ -1,10 +1,13 @@
+import json
 import logging
+import threading
 import uuid
 
-from calamari_common.remote import get_remote
-from cthulhu.log import log
 from calamari_common.types import OsdMap, PgSummary, USER_REQUEST_COMPLETE, USER_REQUEST_SUBMITTED
 from cthulhu.util import now
+
+
+from mgr_log import log
 
 
 class UserRequestBase(object):
@@ -39,7 +42,7 @@ class UserRequestBase(object):
     COMPLETE = USER_REQUEST_COMPLETE
     states = [NEW, SUBMITTED, COMPLETE]
 
-    def __init__(self, fsid, cluster_name):
+    def __init__(self):
         """
         Requiring cluster_name and fsid is redundant (ideally everything would
         speak in terms of fsid) but convenient, because the librados interface
@@ -56,12 +59,6 @@ class UserRequestBase(object):
         # somewhere but it's easy.
         self.id = uuid.uuid4().__str__()
 
-        self._minion_id = None
-        self.fsid = fsid
-        self._cluster_name = cluster_name
-
-        self.jid = None
-
         self.state = self.NEW
         self.result = None
         self.error = False
@@ -73,10 +70,6 @@ class UserRequestBase(object):
     def set_error(self, message):
         self.error = True
         self.error_message = message
-
-    @property
-    def minion_id(self):
-        return self._minion_id
 
     @property
     def associations(self):
@@ -118,13 +111,12 @@ class UserRequestBase(object):
         """
         return {}
 
-    def submit(self, minion_id):
+    def submit(self):
         """
         Start remote execution phase by publishing a job to salt.
         """
         assert self.state == self.NEW
 
-        self._minion_id = minion_id
         self._submit()
 
         self.state = self.SUBMITTED
@@ -132,16 +124,13 @@ class UserRequestBase(object):
     def _submit(self):
         raise NotImplementedError()
 
-    def complete_jid(self, result):
+    def complete_jid(self):
         """
         Call this when remote execution is done.
 
         Implementations must always update .jid appropriately here: either to the
         jid of a new job, or to None.
         """
-        self.result = result
-        self.log.info("Request %s JID %s completed with result=%s" % (self.id, self.jid, self.result))
-        self.jid = None
 
         # This is a default behaviour for UserRequests which don't override this method:
         # assume completion of a JID means the job is now done.
@@ -152,7 +141,6 @@ class UserRequestBase(object):
         Call this when you're all done
         """
         assert self.state != self.COMPLETE
-        assert self.jid is None
 
         self.log.info("Request %s completed with error=%s (%s)" % (self.id, self.error, self.error_message))
         self.state = self.COMPLETE
@@ -165,10 +153,33 @@ class UserRequestBase(object):
         pass
 
 
-class UserRequest(UserRequestBase):
+# TODO define this somewhere centrally that reflects that its
+# part of the C++ interface
+class CommandResult(object):
+    def __init__(self, tag):
+        self.ev = threading.Event()
+        self.outs = ""
+        self.outb = ""
+        self.r = 0
 
-    def __init__(self, headline, fsid, cluster_name):
-        super(UserRequest, self).__init__(fsid, cluster_name)
+        # This is just a convenience for notifications from
+        # C++ land, to avoid passing addresses around in messages.
+        self.tag = tag
+
+    def complete(self, r, outb, outs):
+        self.r = r
+        self.outb = outb
+        self.outs = outs
+        self.ev.set()
+
+    def wait(self):
+        self.ev.wait()
+        return self.r, self.outb, self.outs
+
+
+class UserRequest(UserRequestBase):
+    def __init__(self, headline):
+        super(UserRequest, self).__init__()
         self._await_version = None
         self._headline = headline
 
@@ -177,50 +188,68 @@ class UserRequest(UserRequestBase):
         return self._headline
 
 
+# This is our magic hook into C++ land
+import ceph_state  # NOQA
+
+
+class RadosCommands(object):
+    def __init__(self, tag, commands):
+        self.result = None
+        self._tag = tag
+        self._commands = commands
+
+        self.r = None
+        self.outs = None
+        self.outb = None
+
+    def run(self):
+        cmd = self._commands[0]
+        self._commands = self._commands[1:]
+        self.result = CommandResult(self._tag)
+
+        log.debug("cmd={0}".format(cmd))
+
+        # Commands come in as 2-tuple of args and prefix, convert them
+        # to the form that send_command uses
+        command = cmd[1]
+        command['prefix'] = cmd[0]
+
+        ceph_state.send_command(self.result, json.dumps(command), self._tag)
+
+    def is_complete(self):
+        return self.result is None and not self._commands
+
+    def advance(self):
+        self.r, self.outb, self.outs = self.result.wait()
+        self.result = None
+
+        if self.r == 0:
+            if self._commands:
+                self.run()
+        else:
+            # Stop on errors
+            self._commands = []
+
+
 class RadosRequest(UserRequest):
     """
     A user request whose remote operations consist of librados mon commands
     """
-    def __init__(self, headline, fsid, cluster_name, commands):
+    def __init__(self, headline, commands):
+        super(RadosRequest, self).__init__(headline)
+        self.rados_commands = RadosCommands(self.id, commands)
         self._commands = commands
-        super(RadosRequest, self).__init__(headline, fsid, cluster_name)
 
     def _submit(self, commands=None):
         if commands is None:
             commands = self._commands
 
-        self.log.debug("%s._submit: %s/%s/%s" % (self.__class__.__name__,
-                                                 self._minion_id,
-                                                 self._cluster_name,
-                                                 commands))
+        self.rados_commands.run()
 
-        self.jid = get_remote().run_job(self._minion_id, 'ceph.rados_commands',
-                                        {'fsid': self.fsid,
-                                         'cluster_name': self._cluster_name,
-                                         'commands': commands})
-        self.log.info("Request %s started job %s" % (self.id, self.jid))
+        self.log.info("Request %s started" % (self.id,))
         self.alive_at = now()
 
-        return self.jid
-
-
-class SaltRequest(UserRequest):
-    """
-    A request whose remote operations consist of direct salt fn calls, not
-    specific to ceph or a ceph cluster.
-    """
-    def __init__(self, cmd, args):
-        super(SaltRequest, self).__init__("salt: %s: %s" % (cmd, args), None, None)
-        self._cmd = cmd
-        self._args = args
-
-    def _submit(self):
-        self.jid = get_remote().run_job(self._minion_id, self._cmd, self._args)
-        self.alive_at = now()
-
-        self.log.info("Request %s started job %s" % (self.id, self.jid))
-
-        return self.jid
+        return self.id
 
 
 class OsdMapModifyingRequest(RadosRequest):
@@ -229,9 +258,18 @@ class OsdMapModifyingRequest(RadosRequest):
     the OsdMap sync object to catch up after execution of RADOS commands.
     """
 
-    def __init__(self, headline, fsid, cluster_name, commands):
-        super(OsdMapModifyingRequest, self).__init__(headline, fsid, cluster_name, commands)
+    def __init__(self, headline, commands):
+        commands = commands + [["osd stat", {"format": "json-pretty"}]]
+
+        super(OsdMapModifyingRequest, self).__init__(headline, commands)
         self._await_version = None
+
+        # FIXME: would be nice to make all ceph command return epochs
+        # on completion, so we don't always do this to find out what
+        # epoch to wait for to see results of command
+        # FIXME: OR we could enforce that the C++ layer of ceph-mgr should
+        # always wait_for_latest before passing notifications to pythno land
+
 
     @property
     def status(self):
@@ -243,7 +281,6 @@ class OsdMapModifyingRequest(RadosRequest):
     @property
     def associations(self):
         return {
-            'fsid': self.fsid
         }
 
     @property
@@ -255,12 +292,11 @@ class OsdMapModifyingRequest(RadosRequest):
         else:
             return {}
 
-    def complete_jid(self, result):
+    def complete_jid(self):
         # My remote work is done, record the version of the map that I will wait for
         # and start waiting for it.
-        self.jid = None
-        self.result = result
-        self._await_version = result['versions']['osd_map']
+        log.debug("decoding outb: '{0}'".format(self.rados_commands.outb))
+        self._await_version = json.loads(self.rados_commands.outb)['epoch']
 
     def on_map(self, sync_type, osd_map):
         assert sync_type == OsdMap
@@ -280,8 +316,8 @@ class PoolCreatingRequest(OsdMapModifyingRequest):
     to leave state 'creating' before completing.
     """
 
-    def __init__(self, headline, fsid, cluster_name, pool_name, commands):
-        super(PoolCreatingRequest, self).__init__(headline, fsid, cluster_name, commands)
+    def __init__(self, headline, pool_name, commands):
+        super(PoolCreatingRequest, self).__init__(headline, commands)
         self._awaiting_pgs = False
         self._pool_name = pool_name
 
@@ -433,7 +469,7 @@ class PgCreatingRequest(OsdMapModifyingRequest):
             }))
             self._post_create_commands = [("osd pool set", {'pool': pool_name, 'var': 'pgp_num', 'val': pgp_num})]
 
-        super(PgCreatingRequest, self).__init__(headline, fsid, cluster_name, commands)
+        super(PgCreatingRequest, self).__init__(headline, commands)
         self._phase = self.JID_WAIT
 
     @property

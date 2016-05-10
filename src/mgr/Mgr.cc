@@ -13,12 +13,12 @@
 
 #include "Mgr.h"
 #include "PyState.h"
+#include "MgrPyModule.h"
 
 #include "mon/MonClient.h"
 #include "PyFormatter.h"
 
 #include "global/global_context.h"
-
 
 
 #define dout_subsys ceph_subsys_mon
@@ -105,7 +105,7 @@ int Mgr::init()
   lock.Lock();
   waiting_for_mds_map = new C_SafeCond(&init_lock, &cond, &done, NULL);
   lock.Unlock();
-  monc->sub_want("mdsmap", 0, CEPH_SUBSCRIBE_ONETIME);
+  monc->sub_want("mdsmap", 0, 0);
   monc->renew_subs();
 
   // Wait for MDS map
@@ -135,17 +135,34 @@ void Mgr::shutdown()
   messenger->wait();
 }
 
+void Mgr::notify_all(const std::string &notify_type,
+                     const std::string &notify_id)
+{
+  dout(10) << __func__ << ": notify_all " << notify_type << dendl;
+  for (auto i : modules) {
+    i->notify(notify_type, notify_id);
+  }
+}
 
 bool Mgr::ms_dispatch(Message *m)
 {
    Mutex::Locker locker(lock);
+
+   derr << *m << dendl;
+
    switch (m->get_type()) {
    case CEPH_MSG_MON_MAP:
+     notify_all("mon_status", "");
      break;
    case CEPH_MSG_MDS_MAP:
+     notify_all("mds_map", "");
      handle_mds_map((MMDSMap*)m);
      break;
    case CEPH_MSG_OSD_MAP:
+     notify_all("osd_map", "");
+
+     // Continuous subscribe
+     objecter->maybe_request_map();
      break;
    default:
      return false;
@@ -181,7 +198,7 @@ bool Mgr::ms_get_authorizer(int dest_type, AuthAuthorizer **authorizer,
 
 PyObject *Mgr::get_python(const std::string &what)
 {
-  if (what == "mdsmap") {
+  if (what == "mds_map") {
     PyFormatter f;
     mdsmap->dump(&f);
     return f.get();
@@ -192,19 +209,20 @@ PyObject *Mgr::get_python(const std::string &what)
     });
     std::string crush_text = rdata.to_str();
     return PyString_FromString(crush_text.c_str());
-  } else if (what.substr(0, 6) == "osdmap") {
+  } else if (what.substr(0, 7) == "osd_map") {
     PyFormatter f;
     objecter->with_osdmap([&f,&what](const OSDMap &osd_map){
-      if (what == "osdmap") {
+      if (what == "osd_map") {
         osd_map.dump(&f);
-      } else if (what == "osdmap_tree") {
+      } else if (what == "osd_map_tree") {
         osd_map.print_tree(&f, nullptr);
-      } else if (what == "osdmap_crush") {
+      } else if (what == "osd_map_crush") {
         osd_map.crush->dump(&f);
       }
     });
     return f.get();
   } else {
+    derr << "Python module requested unknown data '" << what << "'" << dendl;
     Py_RETURN_NONE;
   }
 }
@@ -213,13 +231,18 @@ int Mgr::main(vector<const char *> args)
 {
   global_handle = this;
 
-  PyObject *pName, *pModule, *pFunc;
-  PyObject *pArgs, *pValue;
-
+  // Set up global python interpreter
   Py_Initialize();
 
+  // Some python modules do not cope with an unpopulated argv, so lets
+  // fake one.  This step also picks up site-packages into sys.path.
+  const char *argv[] = {"ceph-mgr"};
+  PySys_SetArgv(1, (char**)argv);
+  
+  // Populate python namespace with callable hooks
   Py_InitModule("ceph_state", CephStateMethods);
 
+  // Configure sys.path to include mgr_module_path
   const std::string module_path = g_conf->mgr_module_path;
   dout(4) << "Loading modules from '" << module_path << "'" << dendl;
   std::string sys_path = Py_GetPath();
@@ -243,38 +266,33 @@ int Mgr::main(vector<const char *> args)
     PyEval_InitThreads();
   }
 
-  // Construct pModule
+  // Load python code
   // TODO load mgr_modules list, run them all in a thread each.
-  pName = PyString_FromString("rest");
-  pModule = PyImport_Import(pName);
-  Py_DECREF(pName);
+  auto mod = new MgrPyModule("rest");
+  int r = mod->load();
+  if (r != 0) {
+    derr << "Error loading python module" << dendl;
+    // FIXME: be tolerant of bad modules, log an error and continue
+    // to load other, healthy modules.
+    return -1;
+  }
+  {
+    Mutex::Locker locker(lock);
+    modules.push_back(mod);
+  }
 
-  if (pModule != NULL) {
-      pFunc = PyObject_GetAttrString(pModule, "serve");
-      //pNotify = PyObject_GetAttrString(pModule, "notify");
-      if (pFunc && PyCallable_Check(pFunc)) {
-          pArgs = PyTuple_New(0);
-          pValue = PyObject_CallObject(pFunc, pArgs);
-          Py_DECREF(pArgs);
-          if (pValue != NULL) {
-              Py_DECREF(pValue);
-          } else {
-              Py_DECREF(pFunc);
-              Py_DECREF(pModule);
-              PyErr_Print();
-              return 1;
-          }
-      } else {
-          if (PyErr_Occurred())
-              PyErr_Print();
-      }
-      Py_XDECREF(pFunc);
-      Py_DECREF(pModule);
+  // Execute python server
+  mod->serve();
+
+  {
+    Mutex::Locker locker(lock);
+    // Tear down modules
+    for (auto i : modules) {
+      delete i;
+    }
+    modules.clear();
   }
-  else {
-      PyErr_Print();
-      return 1;
-  }
+
   Py_Finalize();
   return 0;
 }

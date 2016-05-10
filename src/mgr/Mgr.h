@@ -33,6 +33,8 @@
 #include "common/Timer.h"
 
 
+class MgrPyModule;
+
 class Mgr : public Dispatcher {
 protected:
   Objecter *objecter;
@@ -43,6 +45,16 @@ public:
   // FIXME just exposing this for the moment
   // for ceph_send_command
   MonClient *monc;
+
+  // Public so that MonCommandCompletion can use it
+  // FIXME: bit weird that we're sending command completions
+  // to all modules (we rely on them to ignore anything that
+  // they don't recognise), but when we get called from
+  // python-land we don't actually know who we are.  Need
+  // to give python-land a handle in initialisation.
+  void notify_all(const std::string &notify_type,
+                  const std::string &notify_id);
+
 protected:
 
   Mutex lock;
@@ -50,6 +62,8 @@ protected:
   Finisher finisher;
 
   Context *waiting_for_mds_map;
+
+  std::list<MgrPyModule*> modules;
 
 public:
   Mgr();

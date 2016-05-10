@@ -251,43 +251,7 @@ class RpcInterface(object):
         else:
             raise NotImplementedError(object_type)
 
-    def _dump_request(self, request):
-        """UserRequest to JSON-serializable form"""
-        return {
-            'id': request.id,
-            'state': request.state,
-            'error': request.error,
-            'error_message': request.error_message,
-            'status': request.status,
-            'headline': request.headline,
-            'requested_at': request.requested_at.isoformat(),
-            'completed_at': request.completed_at.isoformat() if request.completed_at else None
-        }
 
-    def get_request(self, request_id):
-        """
-        Get a JSON representation of a UserRequest
-        """
-        try:
-            return self._dump_request(self._manager.requests.get_by_id(request_id))
-        except KeyError:
-            raise NotFound('request', request_id)
-
-    def cancel_request(self, request_id):
-        try:
-            self._manager.requests.cancel(request_id)
-            return self.get_request(request_id)
-        except KeyError:
-            raise NotFound('request', request_id)
-
-    def list_requests(self, filter_args):
-        state = filter_args.get('state', None)
-        fsid = filter_args.get('fsid', None)
-        requests = self._manager.requests.get_all()
-        return sorted([self._dump_request(r)
-                       for r in requests
-                       if (state is None or r.state == state) and (fsid is None or r.fsid == fsid)],
-                      lambda a, b: cmp(b['requested_at'], a['requested_at']))
 
     def minion_status(self, status_filter):
         """

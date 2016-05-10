@@ -1,13 +1,18 @@
 from cthulhu.manager.request_factory import RequestFactory
 from calamari_common.types import OsdMap, OSD_IMPLEMENTED_COMMANDS, OSD_FLAGS
 from cthulhu.manager.user_request import OsdMapModifyingRequest, RadosRequest
+from mgr_data import get_sync_object
 
 
 class OsdRequestFactory(RequestFactory):
+    """
+    This class converts CRUD operations to UserRequest objects, and
+    exposes non-crud functions to return the appropriate UserRequest.
+    """
     def update(self, osd_id, attributes):
         commands = []
 
-        osd_map = self._cluster_monitor.get_sync_object(OsdMap)
+        osd_map = get_sync_object(OsdMap)
 
         # in/out/down take a vector of strings called 'ids', while 'reweight' takes a single integer
 
@@ -35,40 +40,34 @@ class OsdRequestFactory(RequestFactory):
         del msg_attrs['id']
 
         if msg_attrs.keys() == ['in']:
-            message = "Marking {cluster_name}-osd.{id} {state}".format(
-                cluster_name=self._cluster_monitor.name, id=osd_id, state=("in" if msg_attrs['in'] else "out"))
+            message = "Marking osd.{id} {state}".format(
+                id=osd_id, state=("in" if msg_attrs['in'] else "out"))
         elif msg_attrs.keys() == ['up']:
-            message = "Marking {cluster_name}-osd.{id} down".format(
-                cluster_name=self._cluster_monitor.name, id=osd_id)
+            message = "Marking osd.{id} down".format(
+                id=osd_id)
         elif msg_attrs.keys() == ['reweight']:
-            message = "Re-weighting {cluster_name}-osd.{id} to {pct}%".format(
-                cluster_name=self._cluster_monitor.name, id=osd_id, pct="{0:.1f}".format(msg_attrs['reweight'] * 100.0))
+            message = "Re-weighting osd.{id} to {pct}%".format(
+                id=osd_id, pct="{0:.1f}".format(msg_attrs['reweight'] * 100.0))
         else:
-            message = "Modifying {cluster_name}-osd.{id} ({attrs})".format(
-                cluster_name=self._cluster_monitor.name, id=osd_id, attrs=", ".join("%s=%s" % (k, v) for k, v in msg_attrs.items()))
+            message = "Modifying osd.{id} ({attrs})".format(
+                id=osd_id, attrs=", ".join(
+                    "%s=%s" % (k, v) for k, v in msg_attrs.items()))
 
-        return OsdMapModifyingRequest(message, self._cluster_monitor.fsid, self._cluster_monitor.name, commands)
+        return OsdMapModifyingRequest(message, commands)
 
     def scrub(self, osd_id):
         return RadosRequest(
-            "Initiating scrub on {cluster_name}-osd.{id}".format(cluster_name=self._cluster_monitor.name, id=osd_id),
-            self._cluster_monitor.fsid,
-            self._cluster_monitor.name,
+            "Initiating scrub on osd.{id}".format(id=osd_id),
             [('osd scrub', {'who': str(osd_id)})])
 
     def deep_scrub(self, osd_id):
         return RadosRequest(
-            "Initiating deep-scrub on {cluster_name}-osd.{id}".format(cluster_name=self._cluster_monitor.name,
-                                                                      id=osd_id),
-            self._cluster_monitor.fsid,
-            self._cluster_monitor.name,
+            "Initiating deep-scrub on osd.{id}".format(id=osd_id),
             [('osd deep-scrub', {'who': str(osd_id)})])
 
     def repair(self, osd_id):
         return RadosRequest(
-            "Initiating repair on {cluster_name}-osd.{id}".format(cluster_name=self._cluster_monitor.name, id=osd_id),
-            self._cluster_monitor.fsid,
-            self._cluster_monitor.name,
+            "Initiating repair on osd.{id}".format(id=osd_id),
             [('osd repair', {'who': str(osd_id)})])
 
     def get_valid_commands(self, osds):
@@ -76,7 +75,7 @@ class OsdRequestFactory(RequestFactory):
         For each OSD in osds list valid commands
         """
         ret_val = {}
-        osd_map = self._cluster_monitor.get_sync_object(OsdMap)
+        osd_map = get_sync_object(OsdMap)
         for osd_id in osds:
             if osd_map.osds_by_id[osd_id]['up']:
                 ret_val[osd_id] = {'valid_commands': OSD_IMPLEMENTED_COMMANDS}
@@ -106,16 +105,15 @@ class OsdRequestFactory(RequestFactory):
 
     def update_config(self, _, attributes):
 
-        osd_map = self._cluster_monitor.get_sync_object(OsdMap)
+        osd_map = get_sync_object(OsdMap)
 
         commands = self._commands_to_set_flags(osd_map, attributes)
 
         if commands:
             return OsdMapModifyingRequest(
-                "Modifying OSD config {cluster_name} ({attrs})".format(
-                    cluster_name=self._cluster_monitor.name,
+                "Modifying OSD config ({attrs})".format(
                     attrs=", ".join("%s=%s" % (k, v) for k, v in attributes.items())
-                ), self._cluster_monitor.fsid, self._cluster_monitor.name, commands)
+                ), commands)
 
         else:
             return None

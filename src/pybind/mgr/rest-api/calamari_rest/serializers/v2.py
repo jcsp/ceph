@@ -7,9 +7,18 @@ from calamari_common.types import CRUSH_RULE_TYPE_REPLICATED, CRUSH_RULE_TYPE_ER
 
 class ValidatingSerializer(serializers.Serializer):
 
-    def is_valid(self, http_method):
+    # django rest framework >= 3 renamed this field
+    @property
+    def init_data(self):
+        return self.initial_data
 
-        self._errors = super(ValidatingSerializer, self).errors or {}
+    def is_valid(self, http_method):
+        if False:
+            self._errors = super(ValidatingSerializer, self).errors or {}
+        else:
+            # django rest framework >= 3 has different is_Valid prototype
+            # than <= 2
+            super(ValidatingSerializer, self).is_valid(False)
 
         if self.init_data is not None:
             if http_method == 'POST':
@@ -126,12 +135,11 @@ class OsdSerializer(ValidatingSerializer):
     _in = fields.BooleanField(required=False, help_text="Whether the OSD is 'in' the set of OSDs which will be used to store data")
     reweight = serializers.FloatField(required=False, help_text="CRUSH weight factor")
     server = serializers.CharField(read_only=True, help_text="FQDN of server this OSD was last running on")
-    pools = serializers.ListField(help_text="List of pool IDs which use this OSD for storage")
+    pools = serializers.ListField(help_text="List of pool IDs which use this OSD for storage", required=False)
     valid_commands = serializers.CharField(read_only=True, help_text="List of commands that can be applied to this OSD")
 
     public_addr = serializers.CharField(read_only=True, help_text="Public/frontend IP address")
     cluster_addr = serializers.CharField(read_only=True, help_text="Cluster/backend IP address")
-
 
 
 class OsdConfigSerializer(ValidatingSerializer):
@@ -151,8 +159,6 @@ class OsdConfigSerializer(ValidatingSerializer):
     norecover = serializers.BooleanField(help_text="Disable replication of Placement Groups", required=False)
     noscrub = serializers.BooleanField(help_text="Disables automatic periodic scrub operations on OSDs. May still be initiated on demand", required=False)
     nodeepscrub = serializers.BooleanField(help_text="Disables automatic periodic deep scrub operations on OSDs. May still be initiated on demand", required=False)
-
-
 
 
 class CrushRuleSerializer(serializers.Serializer):

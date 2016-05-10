@@ -14,6 +14,16 @@ CRUSH_RULE_TYPE_ERASURE = 3
 ServiceId = namedtuple('ServiceId', ['fsid', 'service_type', 'service_id'])
 
 
+MON = 'mon'
+OSD = 'osd'
+MDS = 'mds'
+POOL = 'pool'
+OSD_MAP = 'osd_map'
+CRUSH_RULE = 'crush_rule'
+CLUSTER = 'cluster'
+SERVER = 'server'
+
+
 class SyncObject(object):
     """
     An object from a Ceph cluster that we are maintaining
@@ -48,7 +58,7 @@ class VersionedSyncObject(SyncObject):
 
 
 class OsdMap(VersionedSyncObject):
-    str = 'osd_map'
+    str = OSD_MAP
 
     def __init__(self, version, data):
         super(OsdMap, self).__init__(version, data)
@@ -221,15 +231,6 @@ class NotFound(Exception):
     def __str__(self):
         return "Object of type %s with id %s not found" % (self.object_type, self.object_id)
 
-
-MON = 'mon'
-OSD = 'osd'
-MDS = 'mds'
-POOL = 'pool'
-OSD_MAP = 'osd_map'
-CRUSH_RULE = 'crush_rule'
-CLUSTER = 'cluster'
-SERVER = 'server'
 
 # The objects that ClusterMonitor keeps copies of from the mon
 SYNC_OBJECT_TYPES = [MdsMap, OsdMap, MonMap, MonStatus, PgSummary, Health, Config]

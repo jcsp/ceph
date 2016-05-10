@@ -10,10 +10,6 @@ class RequestFactory(object):
     'pool set' and/or 'pool set-quota' commands).
 
     """
-    def __init__(self, cluster_monitor):
-        # The parent ClusterMonitor, we need a reference to see its
-        # cluster maps
-        self._cluster_monitor = cluster_monitor
 
     def delete(self, obj_id):
         raise NotImplementedError()
