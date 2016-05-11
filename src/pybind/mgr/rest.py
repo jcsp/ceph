@@ -11,7 +11,7 @@ from django.core.servers.basehttp import get_internal_wsgi_application
 
 from mgr_data import get_sync_object
 from mgr_log import log
-from calamari_common.types import OsdMap
+from calamari_common.types import OsdMap, MonMap
 from cthulhu.manager.request_collection import RequestCollection
 
 
@@ -39,6 +39,8 @@ def notify(notify_type, notify_id):
         state.requests.on_completion(notify_id)
     elif notify_type == "osd_map":
         state.requests.on_map(OsdMap, get_sync_object(OsdMap))
+    elif notify_type == "mon_map":
+        state.requests.on_map(MonMap, get_sync_object(MonMap))
     else:
         log.warning("Unhandled notification type '{0}'".format(notify_type))
 

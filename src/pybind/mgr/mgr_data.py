@@ -3,7 +3,8 @@
 # This is our magic hook into C++ land
 import ceph_state
 from calamari_common.types import OsdMap, NotFound, Config, MdsMap, MonMap, \
-    MonStatus, PgSummary, Health
+    PgSummary, Health
+from mgr_log import log
 
 
 def get_sync_object(object_type, path=None):
@@ -20,9 +21,12 @@ def get_sync_object(object_type, path=None):
     elif object_type == Config:
         data = ceph_state.get("config")
         obj = Config(0, data)
+    elif object_type == MonMap:
+        data = ceph_state.get("mon_map")
+        log.info("data = {0}".format(data))
+
+        obj = MonMap(data['epoch'], data)
     # elif object_type == MdsMap:
-    #     pass
-    # elif object_type == MonMap:
     #     pass
     # elif object_type == MonStatus:
     #     pass

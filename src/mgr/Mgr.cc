@@ -226,6 +226,14 @@ PyObject *Mgr::get_python(const std::string &what)
     PyFormatter f;
     g_conf->show_config(&f);
     return f.get();
+  } else if (what == "mon_map") {
+    PyFormatter f;
+    monc->with_monmap(
+      [&f](const MonMap &monmap) {
+        monmap.dump(&f);
+      }
+    );
+    return f.get();
   } else {
     derr << "Python module requested unknown data '" << what << "'" << dendl;
     Py_RETURN_NONE;

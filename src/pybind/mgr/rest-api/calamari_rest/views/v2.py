@@ -21,7 +21,7 @@ from calamari_rest.views.exceptions import ServiceUnavailable
 from calamari_rest.views.rpc_view import RPCViewSet, DataObject
 from calamari_common.types import CRUSH_RULE, POOL, OSD, USER_REQUEST_COMPLETE, USER_REQUEST_SUBMITTED, \
     OSD_IMPLEMENTED_COMMANDS, MON, OSD_MAP, SYNC_OBJECT_TYPES, ServiceId, severity_from_str, SEVERITIES, \
-    OsdMap, Config
+    OsdMap, Config, MonMap
 
 # This is our magic hook into C++ land
 import ceph_state
@@ -725,84 +725,8 @@ useful to show users data from the /status sub-url, which returns the
     """
     serializer_class = MonSerializer
 
-    def _get_mons(self):
-        mon_status = self.client.get_sync_object('mon_status')
-        if not mon_status:
-            raise Http404("No mon data available")
-
-        mons = mon_status['monmap']['mons']
-        service_ids = [ServiceId(MON, mon['name']) for mon in mons]
-        services_info = self.client.status_by_service(service_ids)
-
-        # Use this to invalidate any statuses we can prove are outdated
-        lowest_valid_epoch = mon_status['election_epoch']
-
-        # Step 1: account for the possibility that our cluster-wide mon_status object
-        # could be out of date with respect to local mon_status data that we get
-        # from each mon service.
-        for mon, service_info in zip(mons, services_info):
-            if service_info and service_info['status']:
-                local_epoch = service_info['status']['election_epoch']
-                if local_epoch > lowest_valid_epoch:
-                    # Evidence that the cluster mon status is out of date, and we have
-                    # a more recent one to replace it with.
-                    log.warn("Using mon '%s' local status as it is most recent" % (mon['name']))
-                    mon_status = service_info['status']
-                    lowest_valid_epoch = mon_status['election_epoch']
-                elif local_epoch == lowest_valid_epoch and service_info['status']['quorum'] != mon_status['quorum']:
-                    # Evidence that the cluster mon status is out of date, and we
-                    # have to assume that anyone it claimed was in quorum no longer is.
-                    log.warn("Disregarding cluster mon status because '%s' disagrees" % (mon['name']))
-                    lowest_valid_epoch = local_epoch + 1
-
-        # Step 2: Reconcile what the cluster mon status thinks about this mon with
-        # what it thinks about itself.
-        for mon, service_info in zip(mons, services_info):
-            mon['server'] = service_info['server'] if service_info else None
-
-            cluster_opinion = mon['rank'] in mon_status['quorum'] and mon_status['election_epoch'] >= lowest_valid_epoch
-            if service_info is None or service_info['status'] is None:
-                # Handle local data being unavailable, e.g. if our agent
-                # is not installed on one or more mons
-                mon['status'] = None
-                mon['in_quorum'] = cluster_opinion
-                continue
-
-            status = service_info['status']
-            mon['status'] = status
-
-            local_opinion = service_info['running'] and (status['rank'] in status['quorum']) and \
-                status['election_epoch'] >= lowest_valid_epoch
-
-            if cluster_opinion != local_opinion:
-                log.warn("mon %s/%s local state disagrees with cluster state" % (mon['name'], mon['rank']))
-
-                if status['election_epoch'] == 0 or not service_info['running']:
-                    # You're claiming not to be in quorum, I believe you because I have
-                    # no way of knowing the cluster map is more up to date than your info.
-                    mon['in_quorum'] = local_opinion
-                elif status['election_epoch'] < mon_status['election_epoch']:
-                    # The cluster map is unambiguously more up to date than your info, so
-                    # I believe it.
-                    mon['in_quorum'] = cluster_opinion
-                else:
-                    # Your data is newer than the cluster map, I believe you.
-                    mon['in_quorum'] = local_opinion
-            else:
-                mon['in_quorum'] = cluster_opinion
-
-        # Step 3: special case, handle when our local inferrences about mon status
-        # make it impossible for us to believe what the cluster mon status is telling us.
-        if len([m for m in mons if m['in_quorum']]) < (len(mons) / 2 + 1):
-            log.warn("Asserting that there is no quorum even if cluster map says there is")
-            # I think the cluster map is lying about there being a quorum at all
-            for m in mons:
-                m['in_quorum'] = False
-
-        return mons
-
     def retrieve(self, request, mon_id):
-        mons = self._get_mons()
+        mons = self.client.get_sync_object(MonMap).data['mons']
         try:
             mon = [m for m in mons if m['name'] == mon_id][0]
         except IndexError:
@@ -810,15 +734,11 @@ useful to show users data from the /status sub-url, which returns the
 
         return Response(self.serializer_class(DataObject(mon)).data)
 
-    def retrieve_status(self, request, mon_id):
-        service_info = self.client.status_by_service([ServiceId('mon', mon_id)])[0]
-        if service_info is None:
-            raise Http404("Mon not found '%s'" % mon_id)
-
-        return Response(service_info['status'])
-
     def list(self, request):
-        return Response(self.serializer_class([DataObject(m) for m in self._get_mons(fsid)], many=True).data)
+        mons = self.client.get_sync_object(MonMap).data['mons']
+        return Response(
+            self.serializer_class([DataObject(m) for m in mons],
+                                  many=True).data)
 
 
 if False:

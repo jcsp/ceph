@@ -308,9 +308,14 @@ class MonSerializer(serializers.Serializer):
         fields = ('name', 'rank', 'in_quorum', 'server', 'addr')
 
     name = serializers.CharField(help_text="Human readable name")
-    rank = serializers.IntegerField(help_text="Unique of the mon within the cluster")
-    in_quorum = serializers.BooleanField(help_text="True if the mon is a member of current quorum")
-    server = serializers.CharField(help_text="FQDN of server running the OSD")
+    rank = serializers.IntegerField(
+        help_text="Unique of the mon within the cluster")
+    # TODO: reinstate in_quorum somehow, subscribe to notifications
+    # from mons to find out about mon status changes?
+    # in_quorum = serializers.BooleanField(
+    #     help_text="True if the mon is a member of current quorum")
+    # TODO: reinstate server from mon metadata
+    # server = serializers.CharField(help_text="FQDN of server running the OSD")
     addr = serializers.CharField(help_text="IP address of monitor service")
 
 

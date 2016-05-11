@@ -197,15 +197,15 @@ class MonMap(VersionedSyncObject):
     str = 'mon_map'
 
 
-class MonStatus(VersionedSyncObject):
-    str = 'mon_status'
-
-    def __init__(self, version, data):
-        super(MonStatus, self).__init__(version, data)
-        if data is not None:
-            self.mons_by_rank = dict([(m['rank'], m) for m in data['monmap']['mons']])
-        else:
-            self.mons_by_rank = {}
+# class MonStatus(VersionedSyncObject):
+#     str = 'mon_status'
+#
+#     def __init__(self, version, data):
+#         super(MonStatus, self).__init__(version, data)
+#         if data is not None:
+#             self.mons_by_rank = dict([(m['rank'], m) for m in data['monmap']['mons']])
+#         else:
+#             self.mons_by_rank = {}
 
 
 class PgSummary(SyncObject):
@@ -233,7 +233,7 @@ class NotFound(Exception):
 
 
 # The objects that ClusterMonitor keeps copies of from the mon
-SYNC_OBJECT_TYPES = [MdsMap, OsdMap, MonMap, MonStatus, PgSummary, Health, Config]
+SYNC_OBJECT_TYPES = [MdsMap, OsdMap, MonMap, PgSummary, Health, Config]
 SYNC_OBJECT_STR_TYPE = dict((t.str, t) for t in SYNC_OBJECT_TYPES)
 
 USER_REQUEST_COMPLETE = 'complete'
