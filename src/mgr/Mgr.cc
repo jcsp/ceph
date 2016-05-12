@@ -152,7 +152,11 @@ bool Mgr::ms_dispatch(Message *m)
 
    switch (m->get_type()) {
    case CEPH_MSG_MON_MAP:
-     notify_all("mon_status", "");
+     // FIXME: we probably never get called here because MonClient
+     // has consumed the message.  For consuming OSDMap we need
+     // to be the tail dispatcher, but to see MonMap we would
+     // need to be at the head.
+     notify_all("mon_map", "");
      break;
    case CEPH_MSG_MDS_MAP:
      notify_all("mds_map", "");

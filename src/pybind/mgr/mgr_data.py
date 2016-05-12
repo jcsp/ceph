@@ -26,14 +26,15 @@ def get_sync_object(object_type, path=None):
         log.info("data = {0}".format(data))
 
         obj = MonMap(data['epoch'], data)
-    # elif object_type == MdsMap:
-    #     pass
-    # elif object_type == MonStatus:
-    #     pass
+    elif object_type == MdsMap:
+        data = ceph_state.get("mds_map")
+        obj = MdsMap(data['epoch'], data)
     elif object_type == PgSummary:
-        pass
-    # elif object_type == Health:
-    #     pass
+        # TODO
+        raise NotImplementedError(object_type)
+    elif object_type == Health:
+        # TODO
+        raise NotImplementedError(object_type)
     else:
         raise NotImplementedError(object_type)
 
