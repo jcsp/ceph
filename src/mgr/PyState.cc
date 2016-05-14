@@ -120,6 +120,10 @@ ceph_state_get(PyObject *self, PyObject *args)
 PyMethodDef CephStateMethods[] = {
     {"get", ceph_state_get, METH_VARARGS,
      "Get a cluster object"},
+    /*
+    {"get_server", ceph_state_get_server, METH_VARARGS,
+     "Get a server object"},
+     */
     {"send_command", ceph_send_command, METH_VARARGS,
      "Send a mon command"},
     {NULL, NULL, 0, NULL}

@@ -543,6 +543,7 @@ endif (WITH_CEPHFS)
 if (WITH_MGR)
   set(mgr_srcs
       ceph_mgr.cc
+      mgr/DaemonMetadata.cc
       mgr/PyFormatter.cc
       mgr/PyState.cc
       mgr/MgrPyModule.cc

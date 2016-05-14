@@ -15,8 +15,7 @@ def get_sync_object(object_type, path=None):
         data['tree'] = ceph_state.get("osd_map_tree")
         data['crush'] = ceph_state.get("osd_map_crush")
         data['crush_map_text'] = ceph_state.get("osd_map_crush_map_text")
-        # FIXME: implement sync of OSD metadata between mon and mgr
-        data['osd_metadata'] = []
+        data['osd_metadata'] = ceph_state.get("osd_metadata")
         obj = OsdMap(data['epoch'], data)
     elif object_type == Config:
         data = ceph_state.get("config")

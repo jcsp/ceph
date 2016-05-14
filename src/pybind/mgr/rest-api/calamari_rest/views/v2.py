@@ -1,4 +1,5 @@
 from collections import defaultdict
+import json
 import logging
 import shlex
 
@@ -11,7 +12,7 @@ from django.contrib.auth.decorators import login_required
 
 
 from calamari_rest.serializers.v2 import PoolSerializer, CrushRuleSetSerializer, CrushRuleSerializer, \
-    ServerSerializer, SimpleServerSerializer, SaltKeySerializer, RequestSerializer, \
+    ServerSerializer, SaltKeySerializer, RequestSerializer, \
     ClusterSerializer, EventSerializer, LogTailSerializer, OsdSerializer, ConfigSettingSerializer, MonSerializer, OsdConfigSerializer, \
     CliSerializer
 #from calamari_rest.views.database_view_set import DatabaseViewSet
@@ -22,9 +23,6 @@ from calamari_rest.views.rpc_view import RPCViewSet, DataObject
 from calamari_common.types import CRUSH_RULE, POOL, OSD, USER_REQUEST_COMPLETE, USER_REQUEST_SUBMITTED, \
     OSD_IMPLEMENTED_COMMANDS, MON, OSD_MAP, SYNC_OBJECT_TYPES, ServiceId, severity_from_str, SEVERITIES, \
     OsdMap, Config, MonMap
-
-# This is our magic hook into C++ land
-import ceph_state
 
 
 class Event(object):
@@ -434,9 +432,13 @@ Filtering is available on this resource:
         osds = self.client.list(OSD, list_filter)
         osd_to_pools = self.client.get_sync_object(OsdMap, ['osd_pools'])
         crush_nodes = self.client.get_sync_object(OsdMap, ['osd_tree_node_by_id'])
+        osd_metadata = self.client.get_sync_object(OsdMap, ['osd_metadata'])
+
+        osd_id_to_hostname = dict(
+            [(int(osd_id), osd_meta["hostname"]) for osd_id, osd_meta in
+             osd_metadata.items()])
 
         # Get data depending on OSD list
-        server_info = self.client.server_by_service([ServiceId(OSD, str(osd['osd'])) for osd in osds])
         osd_commands = self.client.get_valid_commands(OSD, [x['osd'] for x in osds])
 
         # Build OSD data objects
@@ -449,8 +451,7 @@ Filtering is available on this resource:
                 log.warning("No CRUSH data available for OSD {0}".format(o['osd']))
                 o.update({'reweight': 0.0})
 
-        for o, (service_id, fqdn) in zip(osds, server_info):
-            o['server'] = fqdn
+            o['server'] = osd_id_to_hostname.get(o['osd'], None)
 
         for o in osds:
             o['pools'] = osd_to_pools[o['osd']]
@@ -465,9 +466,14 @@ Filtering is available on this resource:
         crush_node = self.client.get_sync_object(OsdMap, ['osd_tree_node_by_id', int(osd_id)])
         osd['reweight'] = float(crush_node['reweight'])
 
-        #osd['server'] = self.client.server_by_service([ServiceId(OSD, osd_id)])[0][1]
-        # FIXME: reinstate servers from osd metadata
-        osd['server'] = None
+        osd_metadata = self.client.get_sync_object(OsdMap, ['osd_metadata'])
+
+        osd_id_to_hostname = dict(
+            [(int(osd_id), osd_meta["hostname"]) for osd_id, osd_meta in
+             osd_metadata.items()])
+
+
+        osd['server'] = osd_id_to_hostname.get(osd['osd'], None)
 
         pools = self.client.get_sync_object(OsdMap, ['osd_pools', int(osd_id)])
         osd['pools'] = pools
@@ -573,19 +579,6 @@ all record of it from any/all clusters).
         m['name'] = "Server (within cluster)"
         return m
 
-    def _addr_to_iface(self, addr, ip_interfaces):
-        """
-        Resolve an IP address to a network interface.
-
-        :param addr: An address string like "1.2.3.4"
-        :param ip_interfaces: The 'ip_interfaces' salt grain
-        """
-        for iface_name, iface_addrs in ip_interfaces.items():
-            if addr in iface_addrs:
-                return iface_name
-
-        return None
-
     def list(self, request):
         servers = self.client.server_list_cluster(fsid)
         return Response(self.serializer_class(
@@ -598,27 +591,21 @@ all record of it from any/all clusters).
 
 class ServerViewSet(RPCViewSet):
     """
-Servers which are in communication with Calamari server, or which
-have been inferred from the OSD map.  If a server is in communication
-with the Calamari server then it is considered *managed*.
-
-If a server is only known via the OSD map, then the FQDN attribute
-will be set to the hostname.  This server is later added as a managed
-server then the FQDN will be modified to its correct value.
+Servers that we've learned about via the daemon metadata reported by
+Ceph OSDs, MDSs, mons.
     """
-    serializer_class = SimpleServerSerializer
+    serializer_class = ServerSerializer
 
     def retrieve(self, request, fqdn):
         return Response(
-            self.serializer_class(DataObject(self.client.server_get(fqdn))).data
+            self.serializer_class(
+                DataObject(self.client.server_get(fqdn))).data
         )
 
     def list(self, request):
-        return Response(self.serializer_class([DataObject(s) for s in self.client.server_list()], many=True).data)
-
-    def destroy(self, request, fqdn):
-        self.client.server_delete(fqdn)
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response(self.serializer_class(
+            [DataObject(s) for s in self.client.server_list()],
+            many=True).data)
 
 
 if False:

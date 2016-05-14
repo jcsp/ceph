@@ -11,17 +11,22 @@
  * Foundation.  See file COPYING.
  */
 
+
 #include "Mgr.h"
 #include "PyState.h"
 #include "MgrPyModule.h"
 
+#include "common/ceph_json.h"
 #include "mon/MonClient.h"
 #include "PyFormatter.h"
+#include "include/stringify.h"
 
 #include "global/global_context.h"
 
 
 #define dout_subsys ceph_subsys_mon
+#undef dout_prefix
+#define dout_prefix *_dout << "mgr " << __func__ << " "
 
 
 Mgr::Mgr() :
@@ -92,33 +97,95 @@ int Mgr::init()
   client_t whoami = monc->get_global_id();
   messenger->set_myname(entity_name_t::CLIENT(whoami.v));
 
+  // Preload all daemon metadata (will subsequently keep this
+  // up to date by watching maps, so do the initial load before
+  // we subscribe to any maps)
+  dout(4) << "Loading daemon metadata..." << dendl;
+  load_all_metadata();
+
   // Start Objecter and wait for OSD map
   objecter->start();
   objecter->wait_for_osd_map();
   timer.init();
 
   // Prepare to receive MDS map and request it
-  Mutex init_lock("Mgr:init");
-  Cond cond;
-  bool done = false;
+  dout(4) << "requesting MDS map..." << dendl;
   assert(!mdsmap->get_epoch());
+  C_SaferCond cond;
   lock.Lock();
-  waiting_for_mds_map = new C_SafeCond(&init_lock, &cond, &done, NULL);
+  waiting_for_mds_map = &cond;
   lock.Unlock();
   monc->sub_want("mdsmap", 0, 0);
   monc->renew_subs();
 
   // Wait for MDS map
   dout(4) << "waiting for MDS map..." << dendl;
-  init_lock.Lock();
-  while (!done)
-    cond.Wait(init_lock);
-  init_lock.Unlock();
+  cond.wait();
+  lock.Lock();
+  waiting_for_mds_map = nullptr;
+  lock.Unlock();
   dout(4) << "Got MDS map " << mdsmap->get_epoch() << dendl;
 
   finisher.start();
 
+  dout(4) << "Complete." << dendl;
   return 0;
+}
+
+
+void Mgr::load_all_metadata()
+{
+  Mutex::Locker l(lock);
+
+  bufferlist outbl;
+  std::string outs;
+  std::string cmd = "{\"prefix\": \"osd metadata\"}";
+
+  C_SaferCond cond;
+  monc->start_mon_command({cmd}, {}, &outbl, &outs, &cond);
+  int r = cond.wait();
+
+  
+  json_spirit::mValue metadata_list;
+  bool read_ok = json_spirit::read(outbl.to_str(), metadata_list);
+
+  // FIXME: error handling: this command is supposed to never fail but...
+  assert(r == 0);
+  assert(read_ok);
+
+  for (auto &osd_metadata_val : metadata_list.get_array()) {
+    json_spirit::mObject osd_metadata = osd_metadata_val.get_obj();
+    dout(4) << osd_metadata.at("hostname").get_str() << dendl;
+
+    DaemonMetadataPtr dm = std::make_shared<DaemonMetadata>();
+    dm->key = DaemonKey(CEPH_ENTITY_TYPE_OSD,
+                        stringify(osd_metadata.at("id").get_int()));
+    dm->hostname = osd_metadata.at("hostname").get_str();
+
+    osd_metadata.erase("id");
+    osd_metadata.erase("hostname");
+
+    for (const auto &i : osd_metadata) {
+      dm->metadata[i.first] = i.second.get_str();
+    }
+
+    dmi.insert(dm);
+  }
+
+#if 0
+  /**
+  dout(4) << outbl.to_str() << dendl;
+  dout(4) << outs << dendl;
+  **/
+
+  JSONObj obj;
+  // FIXME: error handling?  check r and also catch exception from decode
+  assert(r == 0);
+  decode_json_obj(outbl, &obj);
+  dout(4) << obj << dendl;
+
+  assert(obj.is_array());
+#endif
 }
 
 
@@ -203,6 +270,8 @@ bool Mgr::ms_get_authorizer(int dest_type, AuthAuthorizer **authorizer,
 
 PyObject *Mgr::get_python(const std::string &what)
 {
+  Mutex::Locker l(lock);
+
   if (what == "mds_map") {
     PyFormatter f;
     mdsmap->dump(&f);
@@ -237,6 +306,18 @@ PyObject *Mgr::get_python(const std::string &what)
         monmap.dump(&f);
       }
     );
+    return f.get();
+  } else if (what == "osd_metadata") {
+    PyFormatter f;
+    auto dmc = dmi.get_by_type(CEPH_ENTITY_TYPE_OSD);
+    for (const auto &i : dmc) {
+      f.open_object_section(i.first.second.c_str());
+      f.dump_string("hostname", i.second->hostname);
+      for (const auto &j : i.second->metadata) {
+        f.dump_string(j.first.c_str(), j.second);
+      }
+      f.close_section();
+    }
     return f.get();
   } else {
     derr << "Python module requested unknown data '" << what << "'" << dendl;

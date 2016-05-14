@@ -232,43 +232,29 @@ class ServiceSerializer(serializers.Serializer):
         return obj['id'][2]
 
 
-class SimpleServerSerializer(serializers.Serializer):
+class ServerSerializer(serializers.Serializer):
     class Meta:
-        fields = ('fqdn', 'hostname', 'managed', 'last_contact', 'boot_time', 'ceph_version', 'services')
+        fields = ('hostname', 'services', 'frontend_addr', 'backend_addr',
+                  'ceph_version')
 
     # Identifying information
-    fqdn = serializers.CharField(help_text="Fully qualified domain name")
-    hostname = serializers.CharField(help_text="Unqualified hostname")
+    hostname = serializers.CharField(help_text="Domain name")
 
-    # Calamari monitoring status
-    managed = serializers.BooleanField(
-        help_text="True if this server is under Calamari server's control, false"
-                  "if the server's existence was inferred via Ceph cluster maps.")
-    last_contact = serializers.DateTimeField(
-        help_text="The time at which this server last communicated with the Calamari"
-                  "server.  This is always null for unmanaged servers")
-    boot_time = serializers.DateTimeField(
-        help_text="The time at which this server booted. "
-                  "This is always null for unmanaged servers")
     ceph_version = serializers.CharField(
-        help_text="The version of Ceph installed.  This is always null for unmanaged servers."
+        help_text="The version of Ceph installed."
     )
-    # Ceph usage
-    services = ServiceSerializer(many=True, help_text="List of Ceph services seen"
+    services = ServiceSerializer(many=True,
+                                 help_text="List of Ceph services seen"
                                  "on this server")
-
-
-class ServerSerializer(SimpleServerSerializer):
-    class Meta:
-        fields = ('fqdn', 'hostname', 'services', 'frontend_addr', 'backend_addr',
-                  'frontend_iface', 'backend_iface', 'managed',
-                  'last_contact', 'boot_time', 'ceph_version')
 
     # Ceph network configuration
     frontend_addr = serializers.CharField()  # may be null if no OSDs or mons on server
     backend_addr = serializers.CharField()  # may be null if no OSDs on server
-    frontend_iface = serializers.CharField()  # may be null if interface for frontend addr not up
-    backend_iface = serializers.CharField()  # may be null if interface for backend addr not up
+
+    # TODO: reinstate by having OSDs resolve addresses to ifaces and report
+    # in their metadata
+    #frontend_iface = serializers.CharField()  # may be null if interface for frontend addr not up
+    #backend_iface = serializers.CharField()  # may be null if interface for backend addr not up
 
 
 class EventSerializer(serializers.Serializer):

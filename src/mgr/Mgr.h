@@ -31,6 +31,7 @@
 #include "auth/Auth.h"
 #include "common/Finisher.h"
 #include "common/Timer.h"
+#include "DaemonMetadata.h"
 
 
 class MgrPyModule;
@@ -64,6 +65,10 @@ protected:
   Context *waiting_for_mds_map;
 
   std::list<MgrPyModule*> modules;
+
+  DaemonMetadataIndex dmi;
+
+  void load_all_metadata();
 
 public:
   Mgr();

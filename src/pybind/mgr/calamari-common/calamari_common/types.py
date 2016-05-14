@@ -78,6 +78,10 @@ class OsdMap(VersionedSyncObject):
             self.osd_tree_node_by_id = {}
             self.flags = dict([(x, False) for x in OSD_FLAGS])
 
+    @property
+    def osd_metadata(self):
+        return self.data['osd_metadata']
+
     @memoize
     def get_tree_nodes_by_id(self):
         return dict((n["id"], n) for n in self.data['tree']["nodes"])
