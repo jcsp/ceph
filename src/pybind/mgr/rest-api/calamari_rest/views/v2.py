@@ -579,7 +579,6 @@ Ceph OSDs, MDSs, mons.
 
     def list(self, request):
         servers = self.client.server_list()
-        log.info(json.dumps(servers, indent=2))
         return Response(self.serializer_class(
             [DataObject(s) for s in servers],
             many=True).data)

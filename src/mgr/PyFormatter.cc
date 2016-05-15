@@ -89,13 +89,19 @@ void PyFormatter::dump_format_va(const char *name, const char *ns, bool quoted, 
   assert(0);
 }
 
+/**
+ * Steals reference to `p`
+ */
 void PyFormatter::dump_pyobject(const char *name, PyObject *p)
 {
   if (PyList_Check(cursor)) {
     PyList_Append(cursor, p);
+    Py_DECREF(p);
   } else if (PyDict_Check(cursor)) {
     PyObject *key = PyString_FromString(name);
     PyDict_SetItem(cursor, key, p);
+    Py_DECREF(key);
+    Py_DECREF(p);
   } else {
     assert(0);
   }

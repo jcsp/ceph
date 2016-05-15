@@ -205,6 +205,11 @@ void Mgr::shutdown()
 void Mgr::notify_all(const std::string &notify_type,
                      const std::string &notify_id)
 {
+  // The python code might try and call back into
+  // our C++->Python interface, so we must not be
+  // holding this lock when we call into the python code.
+  assert(!lock.is_locked_by_me());
+
   dout(10) << __func__ << ": notify_all " << notify_type << dendl;
   for (auto i : modules) {
     i->notify(notify_type, notify_id);
@@ -213,8 +218,6 @@ void Mgr::notify_all(const std::string &notify_type,
 
 bool Mgr::ms_dispatch(Message *m)
 {
-   Mutex::Locker locker(lock);
-
    derr << *m << dendl;
 
    switch (m->get_type()) {
@@ -298,7 +301,9 @@ void Mgr::dump_server(const std::string &hostname,
 
 PyObject *Mgr::get_server_python(const std::string &hostname)
 {
+  PyThreadState *tstate = PyEval_SaveThread();
   Mutex::Locker l(lock);
+  PyEval_RestoreThread(tstate);
   dout(10) << " (" << hostname << ")" << dendl;
 
   auto dmc = dmi.get_by_server(hostname);
@@ -311,7 +316,9 @@ PyObject *Mgr::get_server_python(const std::string &hostname)
 
 PyObject *Mgr::list_servers_python()
 {
+  PyThreadState *tstate = PyEval_SaveThread();
   Mutex::Locker l(lock);
+  PyEval_RestoreThread(tstate);
   dout(10) << " >" << dendl;
 
   PyFormatter f(false, true);
@@ -330,7 +337,9 @@ PyObject *Mgr::list_servers_python()
 
 PyObject *Mgr::get_python(const std::string &what)
 {
+  PyThreadState *tstate = PyEval_SaveThread();
   Mutex::Locker l(lock);
+  PyEval_RestoreThread(tstate);
 
   if (what == "mds_map") {
     PyFormatter f;

@@ -52,5 +52,10 @@ def serve():
         'engine.autoreload.on': False
     })
     cherrypy.tree.graft(app, '/')
+
+    # Dowser is a python memory debugging tool
+    # import dowser
+    # cherrypy.tree.mount(dowser.Root(), "/dowser")
+
     cherrypy.engine.start()
     cherrypy.engine.block()

@@ -7,9 +7,21 @@ from calamari_common.types import OsdMap, NotFound, Config, MdsMap, MonMap, \
 from mgr_log import log
 
 
+def recurse_refs(root, path):
+    if isinstance(root, dict):
+        for k, v in root.items():
+            recurse_refs(v, path + "->%s" % k)
+    elif isinstance(root, list):
+        for n, i in enumerate(root):
+            recurse_refs(i, path + "[%d]" % n)
+
+    log.info("%s %d (%s)" % (path, sys.getrefcount(root), root.__class__))
+
+
 def get_sync_object(object_type, path=None):
     if object_type == OsdMap:
         data = ceph_state.get("osd_map")
+
         assert data is not None
 
         data['tree'] = ceph_state.get("osd_map_tree")
@@ -22,8 +34,6 @@ def get_sync_object(object_type, path=None):
         obj = Config(0, data)
     elif object_type == MonMap:
         data = ceph_state.get("mon_map")
-        log.info("data = {0}".format(data))
-
         obj = MonMap(data['epoch'], data)
     elif object_type == MdsMap:
         data = ceph_state.get("mds_map")
