@@ -85,7 +85,12 @@ public:
   void usage() {}
   int main(vector<const char *> args);
 
+  void dump_server(const std::string &hostname,
+                   const DaemonMetadataCollection &dmc,
+                   Formatter *f);
   PyObject *get_python(const std::string &what);
+  PyObject *get_server_python(const std::string &hostname);
+  PyObject *list_servers_python();
 };
 
 #endif /* MDS_UTILITY_H_ */

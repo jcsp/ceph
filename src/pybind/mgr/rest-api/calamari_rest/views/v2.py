@@ -564,31 +564,6 @@ For debugging and automated testing only.
         return self._return_request(self.client.debug_job(fqdn, cmd, args))
 
 
-class ServerClusterViewSet(RPCViewSet):
-    """
-View of servers within a particular cluster.
-
-Use the global server view for DELETE operations (there is no
-concept of deleting a server from a cluster, only deleting
-all record of it from any/all clusters).
-    """
-    serializer_class = ServerSerializer
-
-    def metadata(self, request):
-        m = super(ServerClusterViewSet, self).metadata(request)
-        m['name'] = "Server (within cluster)"
-        return m
-
-    def list(self, request):
-        servers = self.client.server_list_cluster(fsid)
-        return Response(self.serializer_class(
-            [DataObject(s) for s in servers], many=True).data)
-
-    def retrieve(self, request, fqdn):
-        server = self.client.server_get_cluster(fqdn)
-        return Response(self.serializer_class(DataObject(server)).data)
-
-
 class ServerViewSet(RPCViewSet):
     """
 Servers that we've learned about via the daemon metadata reported by
@@ -603,8 +578,10 @@ Ceph OSDs, MDSs, mons.
         )
 
     def list(self, request):
+        servers = self.client.server_list()
+        log.info(json.dumps(servers, indent=2))
         return Response(self.serializer_class(
-            [DataObject(s) for s in self.client.server_list()],
+            [DataObject(s) for s in servers],
             many=True).data)
 
 

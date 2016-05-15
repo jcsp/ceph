@@ -22,8 +22,7 @@ config = CalamariConfig()
 
 from rest import state as rest_state
 from mgr_log import log
-from mgr_data import get_sync_object as mgr_get_sync_object
-
+import mgr_data
 
 class DataObject(object):
     """
@@ -44,7 +43,7 @@ class MgrClient(object):
         }
 
     def get_sync_object(self, object_type, path=None):
-        return mgr_get_sync_object(object_type, path)
+        return mgr_data.get_sync_object(object_type, path)
 
     def get(self, object_type, object_id):
         """
@@ -89,10 +88,6 @@ class MgrClient(object):
         except KeyError:
             raise NotFound(POOL, pool_id)
 
-    def server_by_service(self, services):
-        # FIXME: implement in terms of OSD metadata
-        return []
-
     def list_requests(self, filter_args):
         state = filter_args.get('state', None)
         fsid = filter_args.get('fsid', None)
@@ -120,13 +115,13 @@ class MgrClient(object):
         Get a JSON representation of a UserRequest
         """
         try:
-            return self._dump_request(state.requests.get_by_id(request_id))
+            return self._dump_request(rest_state.requests.get_by_id(request_id))
         except KeyError:
             raise NotFound('request', request_id)
 
     def cancel_request(self, request_id):
         try:
-            state.requests.cancel(request_id)
+            rest_state.requests.cancel(request_id)
             return self.get_request(request_id)
         except KeyError:
             raise NotFound('request', request_id)
@@ -221,6 +216,12 @@ class MgrClient(object):
             }
         else:
             return None
+
+    def server_get(self, fqdn):
+        return mgr_data.get_server(fqdn)
+
+    def server_list(self):
+        return mgr_data.list_servers()
 
 
 class RPCView(APIView):

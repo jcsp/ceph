@@ -35,10 +35,14 @@
 class PyFormatter : public ceph::Formatter
 {
 public:
-  PyFormatter(bool pretty = false)
+  PyFormatter(bool pretty = false, bool array = false)
   {
     // Initialise cursor to an empty dict
-    root = cursor = PyDict_New();
+    if (!array) {
+      root = cursor = PyDict_New();
+    } else {
+      root = cursor = PyList_New(0);
+    }
   }
 
   ~PyFormatter()
@@ -56,8 +60,13 @@ public:
 
   void reset()
   {
+    const bool array = PyList_Check(root);
     Py_DECREF(root);
-    root = cursor = PyDict_New();
+    if (array) {
+      root = cursor = PyList_New(0);
+    } else {
+      root = cursor = PyDict_New();
+    }
   }
 
   virtual void set_status(int status, const char* status_name) {}

@@ -87,26 +87,11 @@ urlpatterns = patterns(
         calamari_rest.views.v2.DebugJob.as_view({'post': 'create'}),
         name='server-debug-job'),
 
-    # All about servers
-    url(r'^key$', calamari_rest.views.v2.SaltKeyViewSet.as_view(
-        {'get': 'list', 'patch': 'list_partial_update',
-         'delete': 'list_destroy'})),
-    url(r'^key/(?P<minion_id>[a-zA-Z0-9-\.]+)',
-        calamari_rest.views.v2.SaltKeyViewSet.as_view(
-            {'get': 'retrieve', 'patch': 'partial_update',
-             'delete': 'destroy'})),
-
-    url(r'^server$',
-        calamari_rest.views.v2.ServerViewSet.as_view({'get': 'list'})),
-    url(r'^server/(?P<fqdn>[a-zA-Z0-9-\.]+)$',
-        calamari_rest.views.v2.ServerViewSet.as_view(
-            {'get': 'retrieve', 'delete': 'destroy'})),
-
     url(r'^cluster/server$',
-        calamari_rest.views.v2.ServerClusterViewSet.as_view({'get': 'list'}),
+        calamari_rest.views.v2.ServerViewSet.as_view({'get': 'list'}),
         name='cluster-server-list'),
     url(r'^cluster/server/(?P<fqdn>[a-zA-Z0-9-\.]+)$',
-        calamari_rest.views.v2.ServerClusterViewSet.as_view(
+        calamari_rest.views.v2.ServerViewSet.as_view(
             {'get': 'retrieve'}), name='cluster-server-detail'),
 
     # Ceph configuration settings

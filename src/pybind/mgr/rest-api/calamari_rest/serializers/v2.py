@@ -215,27 +215,15 @@ class SaltKeySerializer(ValidatingSerializer):
 
 class ServiceSerializer(serializers.Serializer):
     class Meta:
-        fields = ('fsid', 'type', 'id', 'running')
+        fields = ('type', 'id')
 
-    fsid = serializers.SerializerMethodField("get_fsid")
-    type = serializers.SerializerMethodField("get_type")
-    id = serializers.SerializerMethodField("get_id")
-    running = serializers.BooleanField()
-
-    def get_fsid(self, obj):
-        return obj['id'][0]
-
-    def get_type(self, obj):
-        return obj['id'][1]
-
-    def get_id(self, obj):
-        return obj['id'][2]
+    type = serializers.CharField()
+    id = serializers.CharField()
 
 
 class ServerSerializer(serializers.Serializer):
     class Meta:
-        fields = ('hostname', 'services', 'frontend_addr', 'backend_addr',
-                  'ceph_version')
+        fields = ('hostname', 'services', 'ceph_version')
 
     # Identifying information
     hostname = serializers.CharField(help_text="Domain name")
@@ -248,8 +236,8 @@ class ServerSerializer(serializers.Serializer):
                                  "on this server")
 
     # Ceph network configuration
-    frontend_addr = serializers.CharField()  # may be null if no OSDs or mons on server
-    backend_addr = serializers.CharField()  # may be null if no OSDs on server
+    #frontend_addr = serializers.CharField()  # may be null if no OSDs or mons on server
+    #backend_addr = serializers.CharField()  # may be null if no OSDs on server
 
     # TODO: reinstate by having OSDs resolve addresses to ifaces and report
     # in their metadata
@@ -267,6 +255,7 @@ class EventSerializer(serializers.Serializer):
 
     def get_severity(self, obj):
         return severity_str(obj.severity)
+
 
 class LogTailSerializer(serializers.Serializer):
     """

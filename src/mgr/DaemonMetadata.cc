@@ -35,7 +35,7 @@ void DaemonMetadataIndex::erase(DaemonKey dmk)
   all.erase(dmk);
 }
 
-DaemonMetadataCollection DaemonMetadataIndex::get_by_type(uint8_t type)
+DaemonMetadataCollection DaemonMetadataIndex::get_by_type(uint8_t type) const
 {
   DaemonMetadataCollection result;
 
@@ -46,5 +46,14 @@ DaemonMetadataCollection DaemonMetadataIndex::get_by_type(uint8_t type)
   }
 
   return result;
+}
+
+DaemonMetadataCollection DaemonMetadataIndex::get_by_server(const std::string &hostname) const
+{
+  if (by_server.count(hostname)) {
+    return by_server.at(hostname);
+  } else {
+    return {};
+  }
 }
 

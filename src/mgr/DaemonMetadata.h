@@ -47,8 +47,14 @@ class DaemonMetadataIndex
   void erase(DaemonKey dmk);
 
   DaemonMetadataPtr get(const DaemonKey &key);
-  DaemonMetadataCollection get_by_server(const std::string &hostname);
-  DaemonMetadataCollection get_by_type(uint8_t type);
+  DaemonMetadataCollection get_by_server(const std::string &hostname) const;
+  DaemonMetadataCollection get_by_type(uint8_t type) const;
+
+  const DaemonMetadataCollection &get_all() const {return all;}
+  const std::map<std::string, DaemonMetadataCollection> &get_all_servers() const
+  {
+    return by_server;
+  }
 };
 
 #endif

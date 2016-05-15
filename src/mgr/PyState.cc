@@ -106,6 +106,7 @@ ceph_send_command(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+
 static PyObject*
 ceph_state_get(PyObject *self, PyObject *args)
 {
@@ -117,13 +118,28 @@ ceph_state_get(PyObject *self, PyObject *args)
   return global_handle->get_python(what);
 }
 
+
+static PyObject*
+ceph_get_server(PyObject *self, PyObject *args)
+{
+  char *hostname = NULL;
+  if (!PyArg_ParseTuple(args, "z:ceph_get_server", &hostname)) {
+    return NULL;
+  }
+
+  if (hostname) {
+    return global_handle->get_server_python(hostname);
+  } else {
+    return global_handle->list_servers_python();
+  }
+}
+
+
 PyMethodDef CephStateMethods[] = {
     {"get", ceph_state_get, METH_VARARGS,
      "Get a cluster object"},
-    /*
-    {"get_server", ceph_state_get_server, METH_VARARGS,
+    {"get_server", ceph_get_server, METH_VARARGS,
      "Get a server object"},
-     */
     {"send_command", ceph_send_command, METH_VARARGS,
      "Send a mon command"},
     {NULL, NULL, 0, NULL}

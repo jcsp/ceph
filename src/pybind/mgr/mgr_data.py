@@ -50,3 +50,11 @@ def get_sync_object(object_type, path=None):
             raise NotFound(object_type, path)
 
     return obj
+
+
+def get_server(hostname):
+    return ceph_state.get_server(hostname)
+
+
+def list_servers():
+    return ceph_state.get_server(None)

@@ -268,6 +268,66 @@ bool Mgr::ms_get_authorizer(int dest_type, AuthAuthorizer **authorizer,
   return *authorizer != NULL;
 }
 
+void Mgr::dump_server(const std::string &hostname,
+                      const DaemonMetadataCollection &dmc,
+                      Formatter *f)
+{
+  f->dump_string("hostname", hostname);
+  f->open_array_section("services");
+  std::string ceph_version;
+
+  for (const auto &i : dmc) {
+    const auto &key = i.first;
+    const std::string str_type = ceph_entity_type_name(key.first);
+    const std::string &svc_name = key.second;
+
+    // TODO: pick the highest version, and make sure that
+    // somewhere else (during health reporting?) we are
+    // indicating to the user if we see mixed versions
+    ceph_version = i.second->metadata.at("ceph_version");
+
+    f->open_object_section("service");
+    f->dump_string("type", str_type);
+    f->dump_string("id", svc_name);
+    f->close_section();
+  }
+  f->close_section();
+
+  f->dump_string("ceph_version", ceph_version);
+}
+
+PyObject *Mgr::get_server_python(const std::string &hostname)
+{
+  Mutex::Locker l(lock);
+  dout(10) << " (" << hostname << ")" << dendl;
+
+  auto dmc = dmi.get_by_server(hostname);
+
+  PyFormatter f;
+  dump_server(hostname, dmc, &f);
+  return f.get();
+}
+
+
+PyObject *Mgr::list_servers_python()
+{
+  Mutex::Locker l(lock);
+  dout(10) << " >" << dendl;
+
+  PyFormatter f(false, true);
+  const auto &all = dmi.get_all_servers();
+  for (const auto &i : all) {
+    const auto &hostname = i.first;
+
+    f.open_object_section("server");
+    dump_server(hostname, i.second, &f);
+    f.close_section();
+  }
+
+  return f.get();
+}
+
+
 PyObject *Mgr::get_python(const std::string &what)
 {
   Mutex::Locker l(lock);
