@@ -137,23 +137,87 @@ void Mgr::load_all_metadata()
 {
   Mutex::Locker l(lock);
 
-  bufferlist outbl;
-  std::string outs;
-  std::string cmd = "{\"prefix\": \"osd metadata\"}";
+  class Command : public C_SaferCond
+  {
+  protected:
+    C_SaferCond cond;
+  public:
+    bufferlist outbl;
+    std::string outs;
+    int r;
+    json_spirit::mValue json_result;
 
-  C_SaferCond cond;
-  monc->start_mon_command({cmd}, {}, &outbl, &outs, &cond);
-  int r = cond.wait();
+    void run(MonClient *monc, const std::string &command)
+    {
+      monc->start_mon_command({command}, {},
+          &outbl, &outs, &cond);
+    }
 
-  
-  json_spirit::mValue metadata_list;
-  bool read_ok = json_spirit::read(outbl.to_str(), metadata_list);
+    void wait()
+    {
+      r = cond.wait();
+      if (r == 0) {
+        bool read_ok = json_spirit::read(
+            outbl.to_str(), json_result);
+        if (!read_ok) {
+          r = -EINVAL;
+        }
+      }
+    }
+  };
 
-  // FIXME: error handling: this command is supposed to never fail but...
-  assert(r == 0);
-  assert(read_ok);
+  Command mds_cmd;
+  mds_cmd.run(monc, "{\"prefix\": \"mds metadata\"}");
+  Command osd_cmd;
+  osd_cmd.run(monc, "{\"prefix\": \"osd metadata\"}");
+  Command mon_cmd;
+  mon_cmd.run(monc, "{\"prefix\": \"mon metadata\"}");
 
-  for (auto &osd_metadata_val : metadata_list.get_array()) {
+  mds_cmd.wait();
+  osd_cmd.wait();
+  mon_cmd.wait();
+
+  assert(mds_cmd.r == 0);
+  assert(mon_cmd.r == 0);
+  assert(osd_cmd.r == 0);
+
+  for (auto &metadata_val : mds_cmd.json_result.get_array()) {
+    json_spirit::mObject daemon_meta = metadata_val.get_obj();
+
+    DaemonMetadataPtr dm = std::make_shared<DaemonMetadata>();
+    dm->key = DaemonKey(CEPH_ENTITY_TYPE_MDS,
+                        daemon_meta.at("name").get_str());
+    dm->hostname = daemon_meta.at("hostname").get_str();
+
+    daemon_meta.erase("name");
+    daemon_meta.erase("hostname");
+
+    for (const auto &i : daemon_meta) {
+      dm->metadata[i.first] = i.second.get_str();
+    }
+
+    dmi.insert(dm);
+  }
+
+  for (auto &metadata_val : mon_cmd.json_result.get_array()) {
+    json_spirit::mObject daemon_meta = metadata_val.get_obj();
+
+    DaemonMetadataPtr dm = std::make_shared<DaemonMetadata>();
+    dm->key = DaemonKey(CEPH_ENTITY_TYPE_MON,
+                        daemon_meta.at("name").get_str());
+    dm->hostname = daemon_meta.at("hostname").get_str();
+
+    daemon_meta.erase("name");
+    daemon_meta.erase("hostname");
+
+    for (const auto &i : daemon_meta) {
+      dm->metadata[i.first] = i.second.get_str();
+    }
+
+    dmi.insert(dm);
+  }
+
+  for (auto &osd_metadata_val : osd_cmd.json_result.get_array()) {
     json_spirit::mObject osd_metadata = osd_metadata_val.get_obj();
     dout(4) << osd_metadata.at("hostname").get_str() << dendl;
 
@@ -171,21 +235,6 @@ void Mgr::load_all_metadata()
 
     dmi.insert(dm);
   }
-
-#if 0
-  /**
-  dout(4) << outbl.to_str() << dendl;
-  dout(4) << outs << dendl;
-  **/
-
-  JSONObj obj;
-  // FIXME: error handling?  check r and also catch exception from decode
-  assert(r == 0);
-  decode_json_obj(outbl, &obj);
-  dout(4) << obj << dendl;
-
-  assert(obj.is_array());
-#endif
 }
 
 
