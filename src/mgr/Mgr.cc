@@ -17,6 +17,7 @@
 #include "MgrPyModule.h"
 
 #include "common/ceph_json.h"
+#include "common/errno.h"
 #include "mon/MonClient.h"
 #include "PyFormatter.h"
 #include "include/stringify.h"
@@ -35,11 +36,11 @@ Mgr::Mgr() :
   lock("Mgr::lock"),
   timer(g_ceph_context, lock),
   finisher(g_ceph_context, "Mgr", "mgr-fin"),
-  waiting_for_mds_map(NULL)
+  waiting_for_fs_map(NULL)
 {
   monc = new MonClient(g_ceph_context);
   messenger = Messenger::create_client_messenger(g_ceph_context, "mds");
-  mdsmap = new MDSMap();
+  fsmap = new FSMap();
 
   // FIXME: using objecter as convenience to handle incremental
   // OSD maps, but that's overkill.  We don't really need an objecter.
@@ -52,9 +53,69 @@ Mgr::~Mgr()
   delete objecter;
   delete monc;
   delete messenger;
-  delete mdsmap;
-  assert(waiting_for_mds_map == NULL);
+  delete fsmap;
+  assert(waiting_for_fs_map == NULL);
 }
+
+
+/**
+ * Context for completion of metadata mon commands: take
+ * the result and stash it in DaemonMetadataIndex
+ */
+class MetadataUpdate : public Context
+{
+  DaemonMetadataIndex &dmi;
+  DaemonKey key;
+
+public:
+  bufferlist outbl;
+  std::string outs;
+
+  MetadataUpdate(DaemonMetadataIndex &dmi_, const DaemonKey &key_)
+    : dmi(dmi_), key(key_) {}
+
+  void finish(int r)
+  {
+    dmi.clear_updating(key);
+    if (r == 0) {
+      if (key.first == CEPH_ENTITY_TYPE_MDS) {
+        json_spirit::mValue json_result;
+        bool read_ok = json_spirit::read(
+            outbl.to_str(), json_result);
+        if (!read_ok) {
+          dout(1) << "mon returned invalid JSON for "
+                  << ceph_entity_type_name(key.first)
+                  << "." << key.second << dendl;
+          return;
+        }
+
+
+        json_spirit::mObject daemon_meta = json_result.get_obj();
+        DaemonMetadataPtr dm = std::make_shared<DaemonMetadata>();
+        dm->key = key;
+        dm->hostname = daemon_meta.at("hostname").get_str();
+
+        daemon_meta.erase("name");
+        daemon_meta.erase("hostname");
+
+        for (const auto &i : daemon_meta) {
+          dm->metadata[i.first] = i.second.get_str();
+        }
+
+        dmi.insert(dm);
+      } else if (key.first == CEPH_ENTITY_TYPE_OSD) {
+      } else {
+        assert(0);
+      }
+    } else {
+      dout(1) << "mon failed to return metadata for "
+              << ceph_entity_type_name(key.first)
+              << "." << key.second << ": " << cpp_strerror(r) << dendl;
+    }
+  }
+};
+
+
 
 
 int Mgr::init()
@@ -108,23 +169,23 @@ int Mgr::init()
   objecter->wait_for_osd_map();
   timer.init();
 
-  // Prepare to receive MDS map and request it
-  dout(4) << "requesting MDS map..." << dendl;
-  assert(!mdsmap->get_epoch());
+  // Prepare to receive FSMap and request it
+  dout(4) << "requesting FSMap..." << dendl;
+  assert(!fsmap->get_epoch());
   C_SaferCond cond;
   lock.Lock();
-  waiting_for_mds_map = &cond;
+  waiting_for_fs_map = &cond;
   lock.Unlock();
-  monc->sub_want("mdsmap", 0, 0);
+  monc->sub_want("fsmap", 0, 0);
   monc->renew_subs();
 
-  // Wait for MDS map
-  dout(4) << "waiting for MDS map..." << dendl;
+  // Wait for FSMap
+  dout(4) << "waiting for FSMap..." << dendl;
   cond.wait();
   lock.Lock();
-  waiting_for_mds_map = nullptr;
+  waiting_for_fs_map = nullptr;
   lock.Unlock();
-  dout(4) << "Got MDS map " << mdsmap->get_epoch() << dendl;
+  dout(4) << "Got FSMap " << fsmap->get_epoch() << dendl;
 
   finisher.start();
 
@@ -263,6 +324,61 @@ void Mgr::notify_all(const std::string &notify_type,
   for (auto i : modules) {
     i->notify(notify_type, notify_id);
   }
+
+  // FIXME: this will crash if we're iterating through
+  // modules at the point of shutdown, but I don't want
+  // to hold lock() across calls into python land.
+}
+
+void Mgr::handle_osd_map()
+{
+  /**
+   * When we see a new OSD map, inspect the entity addrs to
+   * see if they have changed (service restart), and if so
+   * reload the metadata.
+   */
+  objecter->with_osdmap([this](const OSDMap &osd_map) {
+    for (unsigned int osd_id = 0; osd_id < osd_map.get_num_osds(); ++osd_id) {
+      if (!osd_map.exists(osd_id)) {
+        continue;
+      }
+
+      const auto k = DaemonKey(CEPH_ENTITY_TYPE_OSD, stringify(osd_id));
+      if (dmi.is_updating(k)) {
+        continue;
+      }
+
+      bool update = false;
+      if (dmi.exists(k)) {
+        auto metadata = dmi.get(k);
+        auto metadata_addr = metadata->metadata.at("front_addr");
+        const auto &map_addr = osd_map.get_addr(osd_id);
+
+        if (metadata_addr != stringify(map_addr)) {
+          dout(4) << "OSD[" << osd_id << "] addr change " << metadata_addr
+                  << " != " << stringify(map_addr) << dendl;
+          update = true;
+        } else {
+          dout(20) << "OSD[" << osd_id << "] addr unchanged: "
+                   << metadata_addr << dendl;
+        }
+      } else {
+        update = true;
+      }
+
+      if (update) {
+        dmi.notify_updating(k);
+        auto c = new MetadataUpdate(dmi, k);
+        std::ostringstream cmd;
+        cmd << "{\"prefix\": \"osd metadata\", \"id\": "
+            << osd_id << "}";
+        int r = monc->start_mon_command(
+            {cmd.str()},
+            {}, &c->outbl, &c->outs, c);
+        assert(r == 0);  // start_mon_command defined to not fail
+      }
+    }
+  });
 }
 
 bool Mgr::ms_dispatch(Message *m)
@@ -275,18 +391,25 @@ bool Mgr::ms_dispatch(Message *m)
      // has consumed the message.  For consuming OSDMap we need
      // to be the tail dispatcher, but to see MonMap we would
      // need to be at the head.
+     assert(0);
+
      notify_all("mon_map", "");
      break;
-   case CEPH_MSG_MDS_MAP:
-     notify_all("mds_map", "");
-     handle_mds_map((MMDSMap*)m);
+   case CEPH_MSG_FS_MAP:
+     notify_all("fs_map", "");
+     handle_fs_map((MFSMap*)m);
+     m->put();
      break;
    case CEPH_MSG_OSD_MAP:
+
+     handle_osd_map();
+
      notify_all("osd_map", "");
 
      // Continuous subscribe, so that we can generate notifications
      // for our MgrPyModules
      objecter->maybe_request_map();
+     m->put();
      break;
    default:
      return false;
@@ -295,12 +418,57 @@ bool Mgr::ms_dispatch(Message *m)
 }
 
 
-void Mgr::handle_mds_map(MMDSMap* m)
+
+void Mgr::handle_fs_map(MFSMap* m)
 {
-  mdsmap->decode(m->get_encoded());
-  if (waiting_for_mds_map) {
-    waiting_for_mds_map->complete(0);
-    waiting_for_mds_map = NULL;
+  Mutex::Locker l(lock);
+
+  *fsmap = m->get_fsmap();
+  if (waiting_for_fs_map) {
+    waiting_for_fs_map->complete(0);
+    waiting_for_fs_map = NULL;
+  }
+
+  auto mds_info = fsmap->get_mds_info();
+  for (const auto &i : mds_info) {
+    const auto &info = i.second;
+
+    const auto k = DaemonKey(CEPH_ENTITY_TYPE_MDS, info.name);
+    if (dmi.is_updating(k)) {
+      continue;
+    }
+
+    bool update = false;
+    if (dmi.exists(k)) {
+      auto metadata = dmi.get(k);
+      // FIXME: nothing stopping old daemons being here, they won't have
+      // addr :-/
+      auto metadata_addr = metadata->metadata.at("addr");
+      const auto map_addr = info.addr;
+
+      if (metadata_addr != stringify(map_addr)) {
+        dout(4) << "MDS[" << info.name << "] addr change " << metadata_addr
+                << " != " << stringify(map_addr) << dendl;
+        update = true;
+      } else {
+        dout(20) << "MDS[" << info.name << "] addr unchanged: "
+                 << metadata_addr << dendl;
+      }
+    } else {
+      update = true;
+    }
+
+    if (update) {
+      dmi.notify_updating(k);
+      auto c = new MetadataUpdate(dmi, k);
+      std::ostringstream cmd;
+      cmd << "{\"prefix\": \"mds metadata\", \"who\": \""
+          << info.name << "\"}";
+      int r = monc->start_mon_command(
+          {cmd.str()},
+          {}, &c->outbl, &c->outs, c);
+      assert(r == 0);  // start_mon_command defined to not fail
+    }
   }
 }
 
@@ -390,9 +558,9 @@ PyObject *Mgr::get_python(const std::string &what)
   Mutex::Locker l(lock);
   PyEval_RestoreThread(tstate);
 
-  if (what == "mds_map") {
+  if (what == "fs_map") {
     PyFormatter f;
-    mdsmap->dump(&f);
+    fsmap->dump(&f);
     return f.get();
   } else if (what == "osdmap_crush_map_text") {
     bufferlist rdata;

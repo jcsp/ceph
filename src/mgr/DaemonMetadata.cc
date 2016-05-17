@@ -15,7 +15,7 @@
 
 void DaemonMetadataIndex::insert(DaemonMetadataPtr dm)
 {
-  if (all.count(dm->key)) {
+  if (exists(dm->key)) {
     erase(dm->key);
   }
 
@@ -55,5 +55,15 @@ DaemonMetadataCollection DaemonMetadataIndex::get_by_server(const std::string &h
   } else {
     return {};
   }
+}
+
+bool DaemonMetadataIndex::exists(const DaemonKey &key) const
+{
+  return all.count(key) > 0;
+}
+
+DaemonMetadataPtr DaemonMetadataIndex::get(const DaemonKey &key)
+{
+  return all.at(key);
 }
 

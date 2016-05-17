@@ -17,6 +17,7 @@
 #include <map>
 #include <string>
 #include <memory>
+#include <set>
 
 typedef std::pair<uint8_t, std::string> DaemonKey;
 
@@ -42,10 +43,13 @@ class DaemonMetadataIndex
   std::map<std::string, DaemonMetadataCollection> by_server;
   DaemonMetadataCollection all;
 
+  std::set<DaemonKey> updating;
+
   public:
   void insert(DaemonMetadataPtr dm);
   void erase(DaemonKey dmk);
 
+  bool exists(const DaemonKey &key) const;
   DaemonMetadataPtr get(const DaemonKey &key);
   DaemonMetadataCollection get_by_server(const std::string &hostname) const;
   DaemonMetadataCollection get_by_type(uint8_t type) const;
@@ -55,6 +59,10 @@ class DaemonMetadataIndex
   {
     return by_server;
   }
+
+  void notify_updating(const DaemonKey &k) { updating.insert(k); }
+  void clear_updating(const DaemonKey &k) { updating.erase(k); }
+  bool is_updating(const DaemonKey &k) { return updating.count(k) > 0; }
 };
 
 #endif

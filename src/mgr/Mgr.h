@@ -24,8 +24,8 @@
 #undef _XOPEN_SOURCE
 
 #include "osdc/Objecter.h"
-#include "mds/MDSMap.h"
-#include "messages/MMDSMap.h"
+#include "mds/FSMap.h"
+#include "messages/MFSMap.h"
 #include "msg/Dispatcher.h"
 #include "msg/Messenger.h"
 #include "auth/Auth.h"
@@ -39,7 +39,7 @@ class MgrPyModule;
 class Mgr : public Dispatcher {
 protected:
   Objecter *objecter;
-  MDSMap *mdsmap;
+  FSMap *fsmap;
   Messenger *messenger;
 
 public:
@@ -62,7 +62,7 @@ protected:
   SafeTimer timer;
   Finisher finisher;
 
-  Context *waiting_for_mds_map;
+  Context *waiting_for_fs_map;
 
   std::list<MgrPyModule*> modules;
 
@@ -74,7 +74,8 @@ public:
   Mgr();
   ~Mgr();
 
-  void handle_mds_map(MMDSMap* m);
+  void handle_fs_map(MFSMap* m);
+  void handle_osd_map();
   bool ms_dispatch(Message *m);
   bool ms_handle_reset(Connection *con) { return false; }
   void ms_handle_remote_reset(Connection *con) {}
