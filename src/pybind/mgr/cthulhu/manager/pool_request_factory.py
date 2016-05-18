@@ -1,9 +1,11 @@
-from cthulhu.log import log
+
 from cthulhu.manager.request_factory import RequestFactory
 from calamari_common.types import OsdMap, Config
 from cthulhu.manager.user_request import OsdMapModifyingRequest, \
     PgCreatingRequest, PoolCreatingRequest
 from mgr_data import get_sync_object
+
+from mgr_log import log
 
 # Valid values for the 'var' argument to 'ceph osd pool set'
 POOL_PROPERTIES = ["size", "min_size", "crash_replay_interval", "pg_num",

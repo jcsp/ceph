@@ -1,17 +1,8 @@
-from contextlib import contextmanager
+
 from threading import RLock
-import datetime
-
-from cthulhu.gevent_util import nosleep
 from cthulhu.manager.user_request import UserRequest
-
-from cthulhu.util import now
-
 from mgr_log import log as global_log
 
-
-# This is our magic hook into C++ land
-import ceph_state
 
 TICK_PERIOD = 20
 
