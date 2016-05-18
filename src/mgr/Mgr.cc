@@ -15,6 +15,7 @@
 #include "Mgr.h"
 #include "PyState.h"
 #include "MgrPyModule.h"
+#include "DaemonServer.h"
 
 #include "common/ceph_json.h"
 #include "common/errno.h"
@@ -33,18 +34,19 @@
 Mgr::Mgr() :
   Dispatcher(g_ceph_context),
   objecter(NULL),
+  monc(new MonClient(g_ceph_context)),
   lock("Mgr::lock"),
   timer(g_ceph_context, lock),
   finisher(g_ceph_context, "Mgr", "mgr-fin"),
-  waiting_for_fs_map(NULL)
+  waiting_for_fs_map(NULL),
+  server(monc)
 {
-  monc = new MonClient(g_ceph_context);
-  messenger = Messenger::create_client_messenger(g_ceph_context, "mds");
+  client_messenger = Messenger::create_client_messenger(g_ceph_context, "mds");
   fsmap = new FSMap();
 
   // FIXME: using objecter as convenience to handle incremental
   // OSD maps, but that's overkill.  We don't really need an objecter.
-  objecter = new Objecter(g_ceph_context, messenger, monc, NULL, 0, 0);
+  objecter = new Objecter(g_ceph_context, client_messenger, monc, NULL, 0, 0);
 }
 
 
@@ -52,7 +54,7 @@ Mgr::~Mgr()
 {
   delete objecter;
   delete monc;
-  delete messenger;
+  delete client_messenger;
   delete fsmap;
   assert(waiting_for_fs_map == NULL);
 }
@@ -121,42 +123,47 @@ public:
 int Mgr::init()
 {
   // Initialize Messenger
-  int r = messenger->bind(g_conf->public_addr);
+  int r = client_messenger->bind(g_conf->public_addr);
   if (r < 0)
     return r;
 
-  messenger->start();
+  client_messenger->start();
 
   objecter->set_client_incarnation(0);
   objecter->init();
 
   // Connect dispatchers before starting objecter
-  messenger->add_dispatcher_tail(objecter);
-  messenger->add_dispatcher_tail(this);
+  client_messenger->add_dispatcher_tail(objecter);
+  client_messenger->add_dispatcher_tail(this);
 
   // Initialize MonClient
   if (monc->build_initial_monmap() < 0) {
     objecter->shutdown();
-    messenger->shutdown();
-    messenger->wait();
+    client_messenger->shutdown();
+    client_messenger->wait();
     return -1;
   }
 
   monc->set_want_keys(CEPH_ENTITY_TYPE_MON|CEPH_ENTITY_TYPE_OSD|CEPH_ENTITY_TYPE_MDS);
-  monc->set_messenger(messenger);
+  monc->set_messenger(client_messenger);
   monc->init();
   r = monc->authenticate();
   if (r < 0) {
     derr << "Authentication failed, did you specify an MDS ID with a valid keyring?" << dendl;
     monc->shutdown();
     objecter->shutdown();
-    messenger->shutdown();
-    messenger->wait();
+    client_messenger->shutdown();
+    client_messenger->wait();
     return r;
   }
 
   client_t whoami = monc->get_global_id();
-  messenger->set_myname(entity_name_t::CLIENT(whoami.v));
+  client_messenger->set_myname(entity_name_t::CLIENT(whoami.v));
+
+  // Start communicating with daemons to learn statistics etc
+  server.init(monc->get_global_id(), client_messenger->get_myaddr());
+
+  dout(4) << "Initialized server at " << server.get_myaddr() << dendl;
 
   // Preload all daemon metadata (will subsequently keep this
   // up to date by watching maps, so do the initial load before
@@ -303,13 +310,15 @@ void Mgr::shutdown()
 {
   finisher.stop();
 
+  server.shutdown();
+
   lock.Lock();
   timer.shutdown();
   objecter->shutdown();
   lock.Unlock();
   monc->shutdown();
-  messenger->shutdown();
-  messenger->wait();
+  client_messenger->shutdown();
+  client_messenger->wait();
 }
 
 void Mgr::notify_all(const std::string &notify_type,

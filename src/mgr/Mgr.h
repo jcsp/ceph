@@ -32,6 +32,7 @@
 #include "common/Finisher.h"
 #include "common/Timer.h"
 #include "DaemonMetadata.h"
+#include "DaemonServer.h"
 
 
 class MgrPyModule;
@@ -40,7 +41,7 @@ class Mgr : public Dispatcher {
 protected:
   Objecter *objecter;
   FSMap *fsmap;
-  Messenger *messenger;
+  Messenger *client_messenger;
 
 public:
   // FIXME just exposing this for the moment
@@ -69,6 +70,8 @@ protected:
   DaemonMetadataIndex dmi;
 
   void load_all_metadata();
+
+  DaemonServer server;
 
 public:
   Mgr();

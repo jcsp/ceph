@@ -544,6 +544,7 @@ if (WITH_MGR)
   set(mgr_srcs
       ceph_mgr.cc
       mgr/DaemonMetadata.cc
+      mgr/DaemonServer.cc
       mgr/PyFormatter.cc
       mgr/PyState.cc
       mgr/MgrPyModule.cc
@@ -645,6 +646,7 @@ set(lib_mon_srcs
   mon/PaxosService.cc
   mon/OSDMonitor.cc
   mon/MDSMonitor.cc
+  mon/MgrMonitor.cc
   mon/MonmapMonitor.cc
   mon/LogMonitor.cc
   mon/AuthMonitor.cc
