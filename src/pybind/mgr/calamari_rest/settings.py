@@ -1,10 +1,7 @@
 # Django settings for calamari project.
 
-import os
-from os.path import dirname, abspath, join
-import sys
 
-from calamari_common.config import CalamariConfig
+from calamari_rest.config import CalamariConfig
 config = CalamariConfig()
 
 DEBUG = False

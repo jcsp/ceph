@@ -6,23 +6,24 @@ their data from cthulhu with zeroRPC
 """
 
 
-from cthulhu.manager.osd_request_factory import OsdRequestFactory
-from cthulhu.manager.pool_request_factory import PoolRequestFactory
+from calamari_rest.manager.osd_request_factory import OsdRequestFactory
+from calamari_rest.manager.pool_request_factory import PoolRequestFactory
 
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
 
 from rest_framework.response import Response
 
-from calamari_common.config import CalamariConfig
+from calamari_rest.config import CalamariConfig
 
-from calamari_common.types import OsdMap, SYNC_OBJECT_STR_TYPE, OSD, OSD_MAP, POOL, CLUSTER, CRUSH_RULE, ServiceId,\
+from calamari_rest.types import OsdMap, SYNC_OBJECT_STR_TYPE, OSD, OSD_MAP, POOL, CLUSTER, CRUSH_RULE, ServiceId,\
     NotFound, SERVER
 config = CalamariConfig()
 
 from rest import state as rest_state
 from mgr_log import log
 import mgr_data
+
 
 class DataObject(object):
     """

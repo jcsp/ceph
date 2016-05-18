@@ -1,7 +1,7 @@
 
 from rest_framework import serializers
 import calamari_rest.serializers.fields as fields
-from calamari_common.types import CRUSH_RULE_TYPE_REPLICATED, CRUSH_RULE_TYPE_ERASURE, USER_REQUEST_COMPLETE, \
+from calamari_rest.types import CRUSH_RULE_TYPE_REPLICATED, CRUSH_RULE_TYPE_ERASURE, USER_REQUEST_COMPLETE, \
     USER_REQUEST_SUBMITTED, OSD_FLAGS, severity_str, SEVERITIES
 
 

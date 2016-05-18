@@ -1,10 +1,6 @@
 from collections import namedtuple
-from calamari_common.util import memoize
-
-import logging
-
-
-log = logging.getLogger('cthulhu.types')
+from calamari_rest.util import memoize
+from mgr_log import log
 
 
 CRUSH_RULE_TYPE_REPLICATED = 1

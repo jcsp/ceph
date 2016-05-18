@@ -1,6 +1,6 @@
 
 from threading import RLock
-from cthulhu.manager.user_request import UserRequest
+from calamari_rest.manager.user_request import UserRequest
 from mgr_log import log as global_log
 
 

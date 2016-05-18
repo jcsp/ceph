@@ -1,7 +1,7 @@
 
-from cthulhu.manager.request_factory import RequestFactory
-from calamari_common.types import OsdMap, Config
-from cthulhu.manager.user_request import OsdMapModifyingRequest, \
+from calamari_rest.manager.request_factory import RequestFactory
+from calamari_rest.types import OsdMap, Config
+from calamari_rest.manager.user_request import OsdMapModifyingRequest, \
     PgCreatingRequest, PoolCreatingRequest
 from mgr_data import get_sync_object
 

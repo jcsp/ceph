@@ -11,8 +11,8 @@ from django.core.servers.basehttp import get_internal_wsgi_application
 
 from mgr_data import get_sync_object
 from mgr_log import log
-from calamari_common.types import OsdMap, MonMap
-from cthulhu.manager.request_collection import RequestCollection
+from calamari_rest.types import OsdMap, MonMap
+from calamari_rest.manager.request_collection import RequestCollection
 
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "calamari_rest.settings")

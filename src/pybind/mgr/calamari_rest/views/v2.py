@@ -20,7 +20,7 @@ from calamari_rest.views.exceptions import ServiceUnavailable
 #from calamari_rest.views.paginated_mixin import PaginatedMixin
 #from calamari_rest.views.remote_view_set import RemoteViewSet
 from calamari_rest.views.rpc_view import RPCViewSet, DataObject
-from calamari_common.types import CRUSH_RULE, POOL, OSD, USER_REQUEST_COMPLETE, USER_REQUEST_SUBMITTED, \
+from calamari_rest.types import CRUSH_RULE, POOL, OSD, USER_REQUEST_COMPLETE, USER_REQUEST_SUBMITTED, \
     OSD_IMPLEMENTED_COMMANDS, MON, OSD_MAP, SYNC_OBJECT_TYPES, ServiceId, severity_from_str, SEVERITIES, \
     OsdMap, Config, MonMap
 

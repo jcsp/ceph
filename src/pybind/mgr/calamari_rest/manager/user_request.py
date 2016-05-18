@@ -3,8 +3,8 @@ import logging
 import threading
 import uuid
 
-from calamari_common.types import OsdMap, PgSummary, USER_REQUEST_COMPLETE, USER_REQUEST_SUBMITTED
-from cthulhu.util import now
+from calamari_rest.types import OsdMap, PgSummary, USER_REQUEST_COMPLETE, USER_REQUEST_SUBMITTED
+from calamari_rest.util import now
 
 
 from mgr_log import log

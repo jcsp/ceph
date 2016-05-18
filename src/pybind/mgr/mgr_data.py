@@ -2,7 +2,7 @@
 
 # This is our magic hook into C++ land
 import ceph_state
-from calamari_common.types import OsdMap, NotFound, Config, MdsMap, MonMap, \
+from calamari_rest.types import OsdMap, NotFound, Config, MdsMap, MonMap, \
     PgSummary, Health
 from mgr_log import log
 
