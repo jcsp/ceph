@@ -12,19 +12,19 @@
  */
 
 
-#include "Mgr.h"
-#include "PyState.h"
-#include "MgrPyModule.h"
-#include "DaemonServer.h"
-
 #include "common/ceph_json.h"
 #include "common/errno.h"
 #include "mon/MonClient.h"
-#include "PyFormatter.h"
 #include "include/stringify.h"
-
 #include "global/global_context.h"
 
+#include "PyState.h"
+#include "MgrPyModule.h"
+#include "DaemonServer.h"
+#include "messages/MMgrBeacon.h"
+#include "PyFormatter.h"
+
+#include "Mgr.h"
 
 #define dout_subsys ceph_subsys_mon
 #undef dout_prefix
@@ -164,6 +164,10 @@ int Mgr::init()
   server.init(monc->get_global_id(), client_messenger->get_myaddr());
 
   dout(4) << "Initialized server at " << server.get_myaddr() << dendl;
+  // TODO: send the beacon periodically
+  MMgrBeacon *m = new MMgrBeacon(monc->get_global_id(),
+                                 server.get_myaddr());
+  monc->send_mon_message(m);
 
   // Preload all daemon metadata (will subsequently keep this
   // up to date by watching maps, so do the initial load before
