@@ -1645,6 +1645,7 @@ OSD::OSD(CephContext *cct_, ObjectStore *store_,
   client_messenger(external_messenger),
   objecter_messenger(osdc_messenger),
   monc(mc),
+  mgrc(client_messenger),
   logger(NULL),
   recoverystate_perf(NULL),
   store(store_),
@@ -2180,6 +2181,8 @@ int OSD::init()
   if (r < 0)
     goto out;
 
+  client_messenger->add_dispatcher_head(&mgrc);
+
   // tell monc about log_client so it will know about mon session resets
   monc->set_log_client(&log_client);
   update_log_config();
@@ -2252,6 +2255,9 @@ int OSD::init()
 
   // subscribe to any pg creations
   monc->sub_want("osd_pg_creates", last_pg_create_epoch, 0);
+
+  // MgrClient needs this (it doesn't have MonClient reference itself)
+  monc->sub_want("mgrmap", 0, 0);
 
   // we don't need to ask for an osdmap here; objecter will
   //monc->sub_want("osdmap", osdmap->get_epoch(), CEPH_SUBSCRIBE_ONETIME);
@@ -5825,6 +5831,7 @@ bool OSD::heartbeat_dispatch(Message *m)
 
 bool OSD::ms_dispatch(Message *m)
 {
+  dout(20) << "OSD::ms_dispatch: " << *m << dendl;
   if (m->get_type() == MSG_OSD_MARK_ME_DOWN) {
     service.got_stop_ack();
     m->put();
