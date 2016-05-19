@@ -287,6 +287,7 @@ set(libcommon_files
   mon/MonCap.cc
   mon/MonClient.cc
   mon/MonMap.cc
+  mgr/MgrClient.cc
   msg/simple/Accepter.cc
   msg/simple/DispatchQueue.cc
   msg/Message.cc

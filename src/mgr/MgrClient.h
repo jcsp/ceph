@@ -15,6 +15,10 @@
 #define MGR_CLIENT_H_
 
 #include "msg/Dispatcher.h"
+#include "mon/MgrMap.h"
+
+class MMgrMap;
+class Messenger;
 
 class MgrSessionState
 {
@@ -22,32 +26,18 @@ class MgrSessionState
 
 class MgrClient : public Dispatcher
 {
-    /**
-     * Pretty simple protocol, layered on top of a lossless pipe.
-     *
-     * Consume mgrmap-esque thing, that tells me who to talk to.
-     * When I see the map change, my session ends and I start
-     * a new session.
-     *
-     * When I start a session, I transmit a hello message with
-     * my perf counter schema.
-     *
-     * I wait for a hello message from the mgr that will tell
-     * me how frequently he wants me to send him stats.
-     *
-     * Then I just sit there sending him stats every N seconds.
-     */
+protected:
+  MgrMap map;
+  Messenger *msgr;
 
-  MgrClient(Messenger *msgr_)
-      : msgr(msgr_)
-  {
-    assert(msgr != nullptr);
-  }
-
+public:
+  MgrClient(Messenger *msgr_);
 
   bool ms_dispatch(Message *m);
-  {
-  }
+  bool ms_handle_reset(Connection *con);
+  void ms_handle_remote_reset(Connection *con) {}
+
+  bool handle_mgr_map(MMgrMap *m);
 };
 
 #endif
