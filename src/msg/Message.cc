@@ -155,6 +155,9 @@ using namespace std;
 #include "messages/MCacheExpire.h"
 #include "messages/MInodeFileCaps.h"
 
+#include "messages/MMgrBeacon.h"
+#include "messages/MMgrMap.h"
+
 #include "messages/MLock.h"
 
 #include "messages/MWatchNotify.h"
@@ -705,6 +708,14 @@ Message *decode_message(CephContext *cct, int crcflags,
 
   case MSG_MDS_LOCK:
     m = new MLock();
+    break;
+
+  case MSG_MGR_BEACON:
+    m = new MMgrBeacon();
+    break;
+
+  case MSG_MGR_MAP:
+    m = new MMgrMap();
     break;
 
   case MSG_TIMECHECK:
