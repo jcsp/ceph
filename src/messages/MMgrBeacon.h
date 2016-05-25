@@ -41,6 +41,7 @@ public:
   {
   }
 
+  uint64_t get_gid() const { return gid; }
   entity_addr_t get_server_addr() const { return server_addr; }
 
 private:
