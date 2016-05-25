@@ -2176,7 +2176,8 @@ int OSD::init()
 
   objecter_messenger->add_dispatcher_head(service.objecter);
 
-  monc->set_want_keys(CEPH_ENTITY_TYPE_MON | CEPH_ENTITY_TYPE_OSD);
+  monc->set_want_keys(CEPH_ENTITY_TYPE_MON | CEPH_ENTITY_TYPE_OSD
+                      | CEPH_ENTITY_TYPE_MGR);
   r = monc->init();
   if (r < 0)
     goto out;
@@ -4760,7 +4761,8 @@ void OSD::ms_handle_connect(Connection *con)
 
 void OSD::ms_handle_fast_connect(Connection *con)
 {
-  if (con->get_peer_type() != CEPH_ENTITY_TYPE_MON) {
+  if (con->get_peer_type() != CEPH_ENTITY_TYPE_MON &&
+      con->get_peer_type() != CEPH_ENTITY_TYPE_MGR) {
     Session *s = static_cast<Session*>(con->get_priv());
     if (!s) {
       s = new Session(cct);
@@ -4778,7 +4780,8 @@ void OSD::ms_handle_fast_connect(Connection *con)
 
 void OSD::ms_handle_fast_accept(Connection *con)
 {
-  if (con->get_peer_type() != CEPH_ENTITY_TYPE_MON) {
+  if (con->get_peer_type() != CEPH_ENTITY_TYPE_MON &&
+      con->get_peer_type() != CEPH_ENTITY_TYPE_MGR) {
     Session *s = static_cast<Session*>(con->get_priv());
     if (!s) {
       s = new Session(cct);
@@ -6015,11 +6018,14 @@ bool OSD::ms_get_authorizer(int dest_type, AuthAuthorizer **authorizer, bool for
   if (force_new) {
     /* the MonClient checks keys every tick(), so we should just wait for that cycle
        to get through */
-    if (monc->wait_auth_rotating(10) < 0)
+    if (monc->wait_auth_rotating(10) < 0) {
+      derr << "OSD::ms_get_authorizer wait_auth_rotating failed" << dendl;
       return false;
+    }
   }
 
   *authorizer = monc->auth->build_authorizer(dest_type);
+  derr << "OSD::ms_get_authorizer build_authorizer returned " << *authorizer << dendl;
   return *authorizer != NULL;
 }
 
@@ -6036,6 +6042,7 @@ bool OSD::ms_verify_authorizer(Connection *con, int peer_type,
      * this makes the 'cluster' consistent w/ monitor's usage.
      */
   case CEPH_ENTITY_TYPE_OSD:
+  case CEPH_ENTITY_TYPE_MGR:
     authorize_handler = authorize_handler_cluster_registry->get_handler(protocol);
     break;
   default:
