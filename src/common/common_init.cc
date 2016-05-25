@@ -68,6 +68,8 @@ CephContext *common_preinit(const CephInitParameters &iparams,
       conf->set_val("keyring", "$mds_data/keyring", false);
     else if (conf->name.is_osd())
       conf->set_val("keyring", "$osd_data/keyring", false);
+    else if (conf->name.is_mgr())
+      conf->set_val("keyring", "$mgr_data/keyring", false);
     break;
 
   case CODE_ENVIRONMENT_UTILITY_NODOUT:
