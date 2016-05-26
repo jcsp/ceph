@@ -12,8 +12,17 @@
  */
 
 #include "DaemonServer.h"
+
+#define dout_subsys ceph_subsys_mgr
+#undef dout_prefix
+#define dout_prefix *_dout << "mgr.server " << __func__ << " "
+
 DaemonServer::DaemonServer(MonClient *monc_)
-    : Dispatcher(g_ceph_context), msgr(nullptr), monc(monc_)
+    : Dispatcher(g_ceph_context), msgr(nullptr), monc(monc_),
+      auth_registry(g_ceph_context,
+                    g_conf->auth_supported.empty() ?
+                      g_conf->auth_cluster_required :
+                      g_conf->auth_supported)
 {}
 
 DaemonServer::~DaemonServer() {
@@ -43,11 +52,47 @@ entity_addr_t DaemonServer::get_myaddr() const
   return msgr->get_myaddr();
 }
 
+
+bool DaemonServer::ms_verify_authorizer(Connection *con,
+    int peer_type,
+    int protocol,
+    ceph::bufferlist& authorizer_data,
+    ceph::bufferlist& authorizer_reply,
+    bool& is_valid,
+    CryptoKey& session_key)
+{
+  auto handler = auth_registry.get_handler(protocol);
+  if (!handler) {
+    dout(0) << "No AuthAuthorizeHandler found for protocol " << protocol << dendl;
+    assert(0);
+    is_valid = false;
+    return true;
+  }
+
+  AuthCapsInfo caps_info;
+  EntityName name;
+  uint64_t global_id = 0;
+
+  is_valid = handler->verify_authorizer(cct, monc->rotating_secrets,
+						  authorizer_data,
+                                                  authorizer_reply, name,
+                                                  global_id, caps_info,
+                                                  session_key);
+
+  // TODO: invent some caps suitable for ceph-mgr
+
+  return true;
+}
+
+
 bool DaemonServer::ms_get_authorizer(int dest_type,
     AuthAuthorizer **authorizer, bool force_new)
 {
-  if (dest_type == CEPH_ENTITY_TYPE_MON)
+  dout(10) << "type=" << ceph_entity_type_name(dest_type) << dendl;
+
+  if (dest_type == CEPH_ENTITY_TYPE_MON) {
     return true;
+  }
 
   if (force_new) {
     if (monc->wait_auth_rotating(10) < 0)
@@ -55,18 +100,95 @@ bool DaemonServer::ms_get_authorizer(int dest_type,
   }
 
   *authorizer = monc->auth->build_authorizer(dest_type);
+  dout(20) << "got authorizer " << *authorizer << dendl;
   return *authorizer != NULL;
 }
 
 
 bool DaemonServer::ms_dispatch(Message *m)
 {
-  return false;
+  switch(m->get_type()) {
+    case MSG_MGR_REPORT:
+      return handle_report(static_cast<MMgrReport*>(m));
+    default:
+      dout(1) << "Unhandled message type " << m->get_type() << dendl;
+      return false;
+  };
 }
 
 void DaemonServer::shutdown()
 {
   msgr->shutdown();
   msgr->wait();
+}
+
+
+
+#if 0
+bool DaemonServer::handle_open()
+{
+
+  // Build our schema (per-service-type, it is an error for daemons
+  // of the same type to provide contradictory schema info for
+  // the same stat name path)
+  
+  // Record (per-client) the mapping between stat path and ID
+}
+#endif
+
+bool DaemonServer::handle_report(MMgrReport *m)
+{
+  DaemonKey key(
+      m->get_connection()->get_peer_type(),
+      m->daemon_name);
+
+  std::shared_ptr<DaemonPerfCounters> counters;
+  if (perf_counters.count(key)) {
+    counters = perf_counters.at(key);
+  } else {
+    counters = std::make_shared<DaemonPerfCounters>(types);
+    perf_counters.insert(std::make_pair(key, counters));
+  }
+
+  auto daemon_counters = perf_counters[key];
+  counters->update(m);
+
+  // TODO remove daemons from daemon_counters at some point,
+  // so that they don't just accumulate
+  
+  m->put();
+  return true;
+}
+
+void DaemonPerfCounters::update(MMgrReport *report)
+{
+  dout(20) << "loading " << report->declare_types.size() << " new types, "
+           << report->packed.length() << " bytes of data" << dendl;
+
+  // Load any newly declared types
+  for (const auto &t : report->declare_types) {
+    types.insert(std::make_pair(t.path, t));
+    declared_types.insert(t.path);
+  }
+
+  // Parse packed data according to declared set of types
+  bufferlist::iterator p = report->packed.begin();
+  DECODE_START(1, p);
+  for (const auto &t_path : declared_types) {
+    const auto &t = types.at(t_path);
+    uint64_t val = 0;
+    uint64_t avgcount = 0;
+    uint64_t avgcount2 = 0;
+
+    ::decode(val, p);
+    if (t.type & PERFCOUNTER_LONGRUNAVG) {
+      ::decode(avgcount, p);
+      ::decode(avgcount2, p);
+    }
+    // TODO: interface for insertion of avgs, add timestamp
+    instances[t_path].push(val);
+  }
+  // TODO: handle badly encoded things without asserting out
+  DECODE_FINISH(p);
 }
 

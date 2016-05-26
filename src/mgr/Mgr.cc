@@ -11,6 +11,7 @@
  * Foundation.  See file COPYING.
  */
 
+#include "PyState.h"
 
 #include "common/ceph_json.h"
 #include "common/errno.h"
@@ -18,7 +19,6 @@
 #include "include/stringify.h"
 #include "global/global_context.h"
 
-#include "PyState.h"
 #include "MgrPyModule.h"
 #include "DaemonServer.h"
 #include "messages/MMgrBeacon.h"
@@ -26,7 +26,7 @@
 
 #include "Mgr.h"
 
-#define dout_subsys ceph_subsys_mon
+#define dout_subsys ceph_subsys_mgr
 #undef dout_prefix
 #define dout_prefix *_dout << "mgr " << __func__ << " "
 
@@ -144,12 +144,13 @@ int Mgr::init()
     return -1;
   }
 
-  monc->set_want_keys(CEPH_ENTITY_TYPE_MON|CEPH_ENTITY_TYPE_OSD|CEPH_ENTITY_TYPE_MDS);
+  monc->set_want_keys(CEPH_ENTITY_TYPE_MON|CEPH_ENTITY_TYPE_OSD
+      |CEPH_ENTITY_TYPE_MDS|CEPH_ENTITY_TYPE_MGR);
   monc->set_messenger(client_messenger);
   monc->init();
   r = monc->authenticate();
   if (r < 0) {
-    derr << "Authentication failed, did you specify an MDS ID with a valid keyring?" << dendl;
+    derr << "Authentication failed, did you specify a mgr ID with a valid keyring?" << dendl;
     monc->shutdown();
     objecter->shutdown();
     client_messenger->shutdown();
@@ -671,7 +672,7 @@ int Mgr::main(vector<const char *> args)
     derr << "Error loading python module" << dendl;
     // FIXME: be tolerant of bad modules, log an error and continue
     // to load other, healthy modules.
-    return -1;
+    return r;
   }
   {
     Mutex::Locker locker(lock);
