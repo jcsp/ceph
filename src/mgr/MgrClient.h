@@ -17,11 +17,21 @@
 #include "msg/Dispatcher.h"
 #include "mon/MgrMap.h"
 
+#include "msg/Connection.h"
+
+#include "common/perf_counters.h"
+
 class MMgrMap;
 class Messenger;
 
 class MgrSessionState
 {
+  public:
+  // Which performance counters have we already transmitted schema for?
+  std::set<std::string> declared;
+
+  // Our connection to the mgr
+  ConnectionRef con;
 };
 
 class MgrClient : public Dispatcher
@@ -29,6 +39,8 @@ class MgrClient : public Dispatcher
 protected:
   MgrMap map;
   Messenger *msgr;
+
+  MgrSessionState *session;
 
 public:
   MgrClient(Messenger *msgr_);
@@ -38,6 +50,8 @@ public:
   void ms_handle_remote_reset(Connection *con) {}
 
   bool handle_mgr_map(MMgrMap *m);
+
+  void send_report();
 };
 
 #endif

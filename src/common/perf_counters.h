@@ -190,6 +190,7 @@ private:
   perf_counter_data_vec_t m_data;
 
   friend class PerfCountersBuilder;
+  friend class MgrClient; // XXX hack jcsp
 };
 
 class SortPerfCountersByName {
@@ -227,6 +228,7 @@ private:
   perf_counters_set_t m_loggers;
 
   friend class PerfCountersCollectionTest;
+  friend class MgrClient; // XXX hack jcsp
 };
 
 /* Class for constructing a PerfCounters object.
