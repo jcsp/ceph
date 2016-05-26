@@ -40,7 +40,8 @@ void MgrMonitor::update_from_paxos(bool *need_bootstrap)
   bufferlist::iterator p = bl.begin();
   map.decode(p);
 
-  dout(4) << "active server: " << map.active << dendl;
+  dout(4) << "active server: " << map.active_addr
+          << "(" << map.active_gid << ")" << dendl;
 
   check_subs();
 }
@@ -113,7 +114,8 @@ bool MgrMonitor::prepare_beacon(MonOpRequestRef op)
 {
   MMgrBeacon *m = static_cast<MMgrBeacon*>(op->get_req());
 
-  pending_map.active = m->get_server_addr();
+  pending_map.active_gid = m->get_gid();
+  pending_map.active_addr = m->get_server_addr();
 
   dout(4) << "proposing epoch " << pending_map.epoch << dendl;
   wait_for_finished_proposal(op, new C_Updated(this, op));

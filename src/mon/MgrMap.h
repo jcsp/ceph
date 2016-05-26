@@ -20,17 +20,20 @@
 class MgrMap
 {
 public:
-  entity_addr_t active;
+  uint64_t active_gid;
+  entity_addr_t active_addr;
   epoch_t epoch;
 
   epoch_t get_epoch() const { return epoch; }
-  entity_addr_t get_active() const { return active; }
+  entity_addr_t get_active_addr() const { return active_addr; }
+  uint64_t get_active_gid() const { return active_gid; }
 
   void encode(bufferlist& bl, uint64_t features) const
   {
     ENCODE_START(1, 1, bl);
     ::encode(epoch, bl);
-    ::encode(active, bl);
+    ::encode(active_addr, bl);
+    ::encode(active_gid, bl);
     ENCODE_FINISH(bl);
   }
 
@@ -38,7 +41,8 @@ public:
   {
     DECODE_START(1, p);
     ::decode(epoch, p);
-    ::decode(active, p);
+    ::decode(active_addr, p);
+    ::decode(active_gid, p);
     DECODE_FINISH(p);
   }
 
