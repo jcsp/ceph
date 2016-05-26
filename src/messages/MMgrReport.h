@@ -22,7 +22,6 @@
 class PerfCounterType
 {
 public:
-  perfcounter_idx_t idx;
   std::string path;
   std::string description;
   std::string nick;
@@ -34,7 +33,6 @@ public:
     // encoding here, we could rely on the MgrReport
     // verisoning instead.
     ENCODE_START(1, 1, bl);
-    ::encode(idx, bl);
     ::encode(path, bl);
     ::encode(description, bl);
     ::encode(nick, bl);
@@ -46,7 +44,6 @@ public:
   void decode(bufferlist::iterator &p)
   {
     DECODE_START(1, p);
-    ::decode(idx, p);
     ::decode(path, p);
     ::decode(description, p);
     ::decode(nick, p);
