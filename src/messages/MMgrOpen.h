@@ -19,32 +19,31 @@
 
 class MMgrOpen : public Message
 {
-  /**
-   * Client is responsible for remembering whether it has introduced
-   * each perf counter to the server.  When first sending a particular
-   * counter, it must inline the counter's schema here.
-   */
-  std::vector<PerfCounterType> types;
+  static const int HEAD_VERSION = 1;
+  static const int COMPAT_VERSION = 1;
 
-  // For all counters present, sorted by idx, output
-  // as many bytes as are needed to represent them
+public:
 
-  // Decode: iterate over the types we know about, sorted by idx,
-  // and use the current type's type to decide how to decode
-  // the next bytes from the bufferlist.
-  bufferlist packed;
+  std::string daemon_name;
 
-  void decode_payload();
+  void decode_payload()
   {
     bufferlist::iterator p = payload.begin();
-    ::decode(types, p);
-    ::decode(packed, p);
+    ::decode(daemon_name, p);
   }
 
   void encode_payload(uint64_t features) {
-    ::encode(types, payload);
-    ::encode(packed, payload);
+    ::encode(daemon_name, payload);
   }
+
+  const char *get_type_name() const { return "mgropen"; }
+  void print(ostream& out) const {
+    out << get_type_name() << "(" << daemon_name << ")"; 
+  }
+
+  MMgrOpen()
+    : Message(MSG_MGR_OPEN, HEAD_VERSION, COMPAT_VERSION)
+  {}
 };
 
 #endif
