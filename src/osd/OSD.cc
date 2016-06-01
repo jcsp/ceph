@@ -2182,6 +2182,7 @@ int OSD::init()
   if (r < 0)
     goto out;
 
+  mgrc.init();
   client_messenger->add_dispatcher_head(&mgrc);
 
   // tell monc about log_client so it will know about mon session resets
@@ -2269,6 +2270,7 @@ int OSD::init()
 
   return 0;
 monout:
+  mgrc.shutdown();
   monc->shutdown();
 
 out:
@@ -2766,6 +2768,7 @@ int OSD::shutdown()
 #endif
   cct->_conf->remove_observer(this);
 
+  mgrc.shutdown();
   monc->shutdown();
   osd_lock.Unlock();
 
