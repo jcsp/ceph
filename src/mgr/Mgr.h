@@ -73,6 +73,10 @@ protected:
 
   DaemonServer server;
 
+  std::map<std::string, std::string> config_cache;
+
+  void load_config();
+
 public:
   Mgr();
   ~Mgr();
@@ -95,6 +99,9 @@ public:
   PyObject *get_python(const std::string &what);
   PyObject *get_server_python(const std::string &hostname);
   PyObject *list_servers_python();
+
+  bool get_config(const std::string &key, std::string *val) const;
+  void set_config(const std::string &key, const std::string &val);
 };
 
 #endif /* MDS_UTILITY_H_ */

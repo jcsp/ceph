@@ -13,6 +13,9 @@
 
 #include "DaemonServer.h"
 
+#include "messages/MMgrOpen.h"
+#include "messages/MMgrConfigure.h"
+
 #define dout_subsys ceph_subsys_mgr
 #undef dout_prefix
 #define dout_prefix *_dout << "mgr.server " << __func__ << " "
@@ -124,23 +127,31 @@ void DaemonServer::shutdown()
 
 
 
-#if 0
-bool DaemonServer::handle_open()
+bool DaemonServer::handle_open(MMgrOpen *m)
 {
+  DaemonKey key(
+      m->get_connection()->get_peer_type(),
+      m->daemon_name);
 
-  // Build our schema (per-service-type, it is an error for daemons
-  // of the same type to provide contradictory schema info for
-  // the same stat name path)
-  
-  // Record (per-client) the mapping between stat path and ID
+  dout(4) << "from " << m->get_connection() << " name "
+          << m->daemon_name << dendl;
+
+  auto configure = new MMgrConfigure();
+  configure->stats_period = 5;
+  m->get_connection()->send_message(configure);
+
+  m->put();
+  return true;
 }
-#endif
 
 bool DaemonServer::handle_report(MMgrReport *m)
 {
   DaemonKey key(
       m->get_connection()->get_peer_type(),
       m->daemon_name);
+
+  dout(4) << "from " << m->get_connection() << " name "
+          << m->daemon_name << dendl;
 
   std::shared_ptr<DaemonPerfCounters> counters;
   if (perf_counters.count(key)) {
@@ -190,5 +201,10 @@ void DaemonPerfCounters::update(MMgrReport *report)
   }
   // TODO: handle badly encoded things without asserting out
   DECODE_FINISH(p);
+}
+
+void DaemonServer::cull(entity_type_t daemon_type,
+                        std::set<std::string> names_exist)
+{
 }
 

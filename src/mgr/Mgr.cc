@@ -176,6 +176,11 @@ int Mgr::init()
   dout(4) << "Loading daemon metadata..." << dendl;
   load_all_metadata();
 
+  // Preload config keys (`get` for plugins is to be a fast local
+  // operation, we we don't have to synchronize these later because
+  // all sets will come via mgr)
+  load_config();
+
   // Start Objecter and wait for OSD map
   objecter->start();
   objecter->wait_for_osd_map();
@@ -206,44 +211,59 @@ int Mgr::init()
 }
 
 
+class Command
+{
+protected:
+  C_SaferCond cond;
+public:
+  bufferlist outbl;
+  std::string outs;
+  int r;
+
+  void run(MonClient *monc, const std::string &command)
+  {
+    monc->start_mon_command({command}, {},
+        &outbl, &outs, &cond);
+  }
+
+  virtual void wait()
+  {
+    r = cond.wait();
+  }
+
+  virtual ~Command() {}
+};
+
+
+class JSONCommand : public Command
+{
+public:
+  json_spirit::mValue json_result;
+
+  void wait()
+  {
+    Command::wait();
+
+    if (r == 0) {
+      bool read_ok = json_spirit::read(
+          outbl.to_str(), json_result);
+      if (!read_ok) {
+        r = -EINVAL;
+      }
+    }
+  }
+};
+
+
 void Mgr::load_all_metadata()
 {
   Mutex::Locker l(lock);
 
-  class Command : public C_SaferCond
-  {
-  protected:
-    C_SaferCond cond;
-  public:
-    bufferlist outbl;
-    std::string outs;
-    int r;
-    json_spirit::mValue json_result;
-
-    void run(MonClient *monc, const std::string &command)
-    {
-      monc->start_mon_command({command}, {},
-          &outbl, &outs, &cond);
-    }
-
-    void wait()
-    {
-      r = cond.wait();
-      if (r == 0) {
-        bool read_ok = json_spirit::read(
-            outbl.to_str(), json_result);
-        if (!read_ok) {
-          r = -EINVAL;
-        }
-      }
-    }
-  };
-
-  Command mds_cmd;
+  JSONCommand mds_cmd;
   mds_cmd.run(monc, "{\"prefix\": \"mds metadata\"}");
-  Command osd_cmd;
+  JSONCommand osd_cmd;
   osd_cmd.run(monc, "{\"prefix\": \"osd metadata\"}");
-  Command mon_cmd;
+  JSONCommand mon_cmd;
   mon_cmd.run(monc, "{\"prefix\": \"mon metadata\"}");
 
   mds_cmd.wait();
@@ -310,6 +330,35 @@ void Mgr::load_all_metadata()
   }
 }
 
+const std::string config_prefix = "mgr.";
+
+void Mgr::load_config()
+{
+  dout(10) << "listing keys" << dendl;
+  JSONCommand cmd;
+  cmd.run(monc, "{\"prefix\": \"config-key list\"}");
+
+  cmd.wait();
+  assert(cmd.r == 0);
+  
+  for (auto &key_str : cmd.json_result.get_array()) {
+    std::string const key = key_str.get_str();
+    dout(20) << "saw key '" << key << "'" << dendl;
+
+    if (key.substr(0, config_prefix.size()) == config_prefix) {
+      dout(20) << "fetching '" << key << "'" << dendl;
+      Command get_cmd;
+      std::ostringstream cmd_json;
+      cmd_json << "{\"prefix\": \"config-key get\", \"key\": \"" << key << "\"}";
+      get_cmd.run(monc, cmd_json.str());
+      get_cmd.wait();
+      assert(get_cmd.r == 0);
+
+      config_cache[key] = get_cmd.outbl.to_str();
+    }
+  }
+}
+
 
 void Mgr::shutdown()
 {
@@ -346,23 +395,29 @@ void Mgr::notify_all(const std::string &notify_type,
 
 void Mgr::handle_osd_map()
 {
+  std::set<std::string> names_exist;
+
   /**
    * When we see a new OSD map, inspect the entity addrs to
    * see if they have changed (service restart), and if so
    * reload the metadata.
    */
-  objecter->with_osdmap([this](const OSDMap &osd_map) {
+  objecter->with_osdmap([this, &names_exist](const OSDMap &osd_map) {
     for (unsigned int osd_id = 0; osd_id < osd_map.get_num_osds(); ++osd_id) {
       if (!osd_map.exists(osd_id)) {
         continue;
       }
 
+      // Remember which OSDs exist so that we can cull any that don't
+      names_exist.insert(stringify(osd_id));
+
+      // Consider whether to update the daemon metadata (new/restarted daemon)
+      bool update_meta = false;
       const auto k = DaemonKey(CEPH_ENTITY_TYPE_OSD, stringify(osd_id));
       if (dmi.is_updating(k)) {
         continue;
       }
 
-      bool update = false;
       if (dmi.exists(k)) {
         auto metadata = dmi.get(k);
         auto metadata_addr = metadata->metadata.at("front_addr");
@@ -371,16 +426,16 @@ void Mgr::handle_osd_map()
         if (metadata_addr != stringify(map_addr)) {
           dout(4) << "OSD[" << osd_id << "] addr change " << metadata_addr
                   << " != " << stringify(map_addr) << dendl;
-          update = true;
+          update_meta = true;
         } else {
           dout(20) << "OSD[" << osd_id << "] addr unchanged: "
                    << metadata_addr << dendl;
         }
       } else {
-        update = true;
+        update_meta = true;
       }
 
-      if (update) {
+      if (update_meta) {
         dmi.notify_updating(k);
         auto c = new MetadataUpdate(dmi, k);
         std::ostringstream cmd;
@@ -393,6 +448,9 @@ void Mgr::handle_osd_map()
       }
     }
   });
+
+  server.cull(CEPH_ENTITY_TYPE_OSD, names_exist);
+  dmi.cull(CEPH_ENTITY_TYPE_OSD, names_exist);
 }
 
 bool Mgr::ms_dispatch(Message *m)
@@ -693,5 +751,32 @@ int Mgr::main(vector<const char *> args)
 
   Py_Finalize();
   return 0;
+}
+
+
+bool Mgr::get_config(const std::string &key, std::string *val) const
+{
+  if (config_cache.count(key)) {
+    *val = config_cache.at(key);
+    return true;
+  } else {
+    return false;
+  }
+}
+
+void Mgr::set_config(const std::string &key, const std::string &val)
+{
+  config_cache[key] = val;
+
+  std::ostringstream cmd_json;
+  Command set_cmd;
+  cmd_json << "{\"prefix\": \"config-key put\","
+              " \"key\": \"" << key << "\","
+              "\"val\": \"" << val << "\"}";
+  set_cmd.run(monc, cmd_json.str());
+  set_cmd.wait();
+
+  // FIXME: is config-key put ever allowed to fail?
+  assert(set_cmd.r == 0);
 }
 

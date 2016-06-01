@@ -19,7 +19,9 @@
 #include <memory>
 #include <set>
 
-typedef std::pair<uint8_t, std::string> DaemonKey;
+#include "msg/msg_types.h"
+
+typedef std::pair<entity_type_t, std::string> DaemonKey;
 
 class DaemonMetadata
 {
@@ -63,6 +65,14 @@ class DaemonMetadataIndex
   void notify_updating(const DaemonKey &k) { updating.insert(k); }
   void clear_updating(const DaemonKey &k) { updating.erase(k); }
   bool is_updating(const DaemonKey &k) { return updating.count(k) > 0; }
+
+  /**
+   * Remove state for all daemons of this type whose names are
+   * not present in `names_exist`.  Use this function when you have
+   * a cluster map and want to ensure that anything absent in the map
+   * is also absent in this class.
+   */
+  void cull(entity_type_t daemon_type, std::set<std::string> names_exist){}
 };
 
 #endif

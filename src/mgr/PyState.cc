@@ -134,6 +134,36 @@ ceph_get_server(PyObject *self, PyObject *args)
   }
 }
 
+static PyObject*
+ceph_config_get(PyObject *self, PyObject *args)
+{
+  char *what = nullptr;
+  if (!PyArg_ParseTuple(args, "s:ceph_state_get", &what)) {
+    return nullptr;
+  }
+
+  std::string value;
+  bool found = global_handle->get_config(what, &value);
+  if (found) {
+    return PyString_FromString(value.c_str());
+  } else {
+    Py_RETURN_NONE;
+  }
+}
+
+static PyObject*
+ceph_config_set(PyObject *self, PyObject *args)
+{
+  char *key = nullptr;
+  char *value = nullptr;
+  if (!PyArg_ParseTuple(args, "ss:ceph_state_get", &key, &value)) {
+    return nullptr;
+  }
+
+  global_handle->set_config(key, value);
+
+  Py_RETURN_NONE;
+}
 
 PyMethodDef CephStateMethods[] = {
     {"get", ceph_state_get, METH_VARARGS,
@@ -142,35 +172,10 @@ PyMethodDef CephStateMethods[] = {
      "Get a server object"},
     {"send_command", ceph_send_command, METH_VARARGS,
      "Send a mon command"},
+    {"get_config", ceph_config_get, METH_VARARGS,
+     "Get a configuration value"},
+    {"set_config", ceph_config_set, METH_VARARGS,
+     "Set a configuration value"},
     {NULL, NULL, 0, NULL}
 };
 
-// When I want to call into the python code to notify it,
-// I guess I just have to take GIL first, that's okay.
-
-// When the python code wants to do something synchronous,
-// calling into C++, that's okay too, but the C++ code has
-// to explicitly drop the GIL so that other python code
-// can proceed.
-
-// How should the python code handle doing e.g. a send_command?
-//  The API calls want to hand this kind of thing off from the
-//  HTTP handler to a Request worker.  We end up with essentially
-//  an intra-process RPC from the HTTP request handler loop into
-//  another loop servicing RPCs.
-//
-//  Should we let the Request worker block?  I don't see why not?
-//  Other than that it is kind of uncomfortable for that code which
-//  was written for salt jobs; all the existing calamari code expects
-//  to emit a command and then receive a message later when it completes.
-//
-// If the python code is using gevent, then releasing the GIL isn't
-// sufficient, right?  We need to let the python interpreter
-// resume execution.  Do we need python-side wrapper functions?
-//
-// Hmm, in Calamari my remote stubs would do their command, then
-// return the map epoch that I need in order to see the result
-// of their action.  Now, I guess I can go ahead and do a
-// wait_for_latest equivalent down in my MonClient, although
-// that's not really the same thing.  Maybe I should make
-// the MonCommand interface return cluster map epochs?

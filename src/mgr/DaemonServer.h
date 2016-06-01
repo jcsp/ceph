@@ -14,6 +14,9 @@
 #ifndef DAEMON_SERVER_H_
 #define DAEMON_SERVER_H_
 
+#include <set>
+#include <string>
+
 #include <msg/Messenger.h>
 #include <mon/MonClient.h>
 
@@ -26,6 +29,7 @@
 #include "DaemonMetadata.h"
 
 class MMgrReport;
+class MMgrOpen;
 
 typedef std::map<std::string, PerfCounterType> PerfCounterTypes;
 
@@ -86,10 +90,19 @@ public:
       bool& isvalid,
       CryptoKey& session_key);
 
+  bool handle_open(MMgrOpen *m);
   bool handle_report(MMgrReport *m);
 
   PerfCounterTypes types;
   std::map<DaemonKey, std::shared_ptr<DaemonPerfCounters> > perf_counters;
+
+  /**
+   * Remove state for all daemons of this type whose names are
+   * not present in `names_exist`.  Use this function when you have
+   * a cluster map and want to ensure that anything absent in the map
+   * is also absent in this class.
+   */
+  void cull(entity_type_t daemon_type, std::set<std::string> names_exist);
 };
 
 #endif
