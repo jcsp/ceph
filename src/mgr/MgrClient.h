@@ -20,8 +20,10 @@
 #include "msg/Connection.h"
 
 #include "common/perf_counters.h"
+#include "common/Timer.h"
 
 class MMgrMap;
+class MMgrConfigure;
 class Messenger;
 
 class MgrSessionState
@@ -42,14 +44,24 @@ protected:
 
   MgrSessionState *session;
 
+  Mutex lock;
+
+  uint32_t stats_period;
+  SafeTimer     timer;
+
+
 public:
   MgrClient(Messenger *msgr_);
+
+  void init();
+  void shutdown();
 
   bool ms_dispatch(Message *m);
   bool ms_handle_reset(Connection *con);
   void ms_handle_remote_reset(Connection *con) {}
 
   bool handle_mgr_map(MMgrMap *m);
+  bool handle_mgr_configure(MMgrConfigure *m);
 
   void send_report();
 };

@@ -17,26 +17,40 @@
 #include "msg/Messenger.h"
 #include "messages/MMgrMap.h"
 #include "messages/MMgrReport.h"
+#include "messages/MMgrOpen.h"
+#include "messages/MMgrConfigure.h"
 
 #define dout_subsys ceph_subsys_mgrc
 #undef dout_prefix
 #define dout_prefix *_dout << "mgrc " << __func__ << " "
 
 MgrClient::MgrClient(Messenger *msgr_)
-    : Dispatcher(g_ceph_context), msgr(msgr_)
+    : Dispatcher(g_ceph_context), msgr(msgr_), lock("mgrc"),
+      timer(g_ceph_context, lock)
 {
   assert(msgr != nullptr);
 }
 
+void MgrClient::init()
+{
+  timer.init();
+}
+
+void MgrClient::shutdown()
+{
+  timer.shutdown();
+}
+
 bool MgrClient::ms_dispatch(Message *m)
 {
+  Mutex::Locker l(lock);
+
   dout(20) << *m << dendl;
   switch(m->get_type()) {
   case MSG_MGR_MAP:
     return handle_mgr_map(static_cast<MMgrMap*>(m));
-  case MSG_MGR_OPEN:
-    m->put();
-    return true;
+  case MSG_MGR_CONFIGURE:
+    return handle_mgr_configure(static_cast<MMgrConfigure*>(m));
   default:
     dout(10) << "Not handling " << *m << dendl; 
     return false;
@@ -45,6 +59,8 @@ bool MgrClient::ms_dispatch(Message *m)
 
 bool MgrClient::handle_mgr_map(MMgrMap *m)
 {
+  assert(lock.is_locked_by_me());
+
   map = m->get_map();
   dout(4) << "Got map version " << map.epoch << dendl;
   m->put();
@@ -62,11 +78,9 @@ bool MgrClient::handle_mgr_map(MMgrMap *m)
     session->con = msgr->get_connection(inst);
   }
 
-  send_report();
-
-  // TODO: is the map active addr different to the one
-  // for our current session?  If so, nuke the session
-  // and start again.
+  auto open = new MMgrOpen();
+  open->daemon_name = g_conf->name.get_id();
+  session->con->send_message(open);
 
   return true;
 }
@@ -95,8 +109,27 @@ bool MgrClient::ms_handle_reset(Connection *con)
 #endif
 }
 
+class C_StdFunction : public Context
+{
+private:
+  std::function<void()> fn;
+
+public:
+  C_StdFunction(std::function<void()> fn_)
+    : fn(fn_)
+  {}
+
+  void finish(int r)
+  {
+    fn();
+  }
+};
+
+
+
 void MgrClient::send_report()
 {
+  assert(lock.is_locked_by_me());
   assert(session);
 
   auto report = new MMgrReport();
@@ -115,7 +148,7 @@ void MgrClient::send_report()
     // FIXME: dropping this lock while keeping ptrs
     // to the data isn't exactly safe.
     Mutex::Locker collection_lock(l->m_lock);
-    for (int i = 0; i < l->m_data.size(); ++i) {
+    for (unsigned int i = 0; i < l->m_data.size(); ++i) {
       PerfCounters::perf_counter_data_any_d &data = l->m_data[i];
 
       std::string path = l->get_name();
@@ -163,5 +196,26 @@ void MgrClient::send_report()
   report->daemon_name = g_conf->name.get_id();
 
   session->con->send_message(report);
+
+  if (stats_period != 0) {
+    auto c = new C_StdFunction([this](){send_report();});
+    timer.add_event_after(stats_period, c);
+  }
+}
+
+bool MgrClient::handle_mgr_configure(MMgrConfigure *m)
+{
+  assert(lock.is_locked_by_me());
+
+  dout(4) << "stats_period=" << m->stats_period << dendl;
+
+  bool starting = (stats_period == 0) && (m->stats_period != 0);
+  stats_period = m->stats_period;
+  if (starting) {
+    send_report();
+  }
+
+  m->put();
+  return true;
 }
 
