@@ -19,6 +19,8 @@
 #include "include/stringify.h"
 #include "global/global_context.h"
 
+#include "mgr/MgrContext.h"
+
 #include "MgrPyModule.h"
 #include "DaemonServer.h"
 #include "messages/MMgrBeacon.h"
@@ -362,14 +364,18 @@ void Mgr::load_config()
 
 void Mgr::shutdown()
 {
-  finisher.stop();
-
+  // First stop the server so that we're not taking any more incoming requests
   server.shutdown();
+
+  // Then stop the finisher to ensure its enqueued contexts aren't going
+  // to touch references to the things we're about to tear down
+  finisher.stop();
 
   lock.Lock();
   timer.shutdown();
   objecter->shutdown();
   lock.Unlock();
+
   monc->shutdown();
   client_messenger->shutdown();
   client_messenger->wait();
@@ -381,16 +387,16 @@ void Mgr::notify_all(const std::string &notify_type,
   // The python code might try and call back into
   // our C++->Python interface, so we must not be
   // holding this lock when we call into the python code.
-  assert(!lock.is_locked_by_me());
+  assert(lock.is_locked_by_me());
 
   dout(10) << __func__ << ": notify_all " << notify_type << dendl;
   for (auto i : modules) {
-    i->notify(notify_type, notify_id);
+    // Send all python calls down a Finisher to avoid blocking
+    // C++ code, and avoid any potential lock cycles.
+    finisher.queue(new C_StdFunction([i, notify_type, notify_id](){
+      i->notify(notify_type, notify_id);
+    }));
   }
-
-  // FIXME: this will crash if we're iterating through
-  // modules at the point of shutdown, but I don't want
-  // to hold lock() across calls into python land.
 }
 
 void Mgr::handle_osd_map()
@@ -455,45 +461,51 @@ void Mgr::handle_osd_map()
 
 bool Mgr::ms_dispatch(Message *m)
 {
-   derr << *m << dendl;
+  derr << *m << dendl;
+  Mutex::Locker l(lock);
 
-   switch (m->get_type()) {
-   case CEPH_MSG_MON_MAP:
-     // FIXME: we probably never get called here because MonClient
-     // has consumed the message.  For consuming OSDMap we need
-     // to be the tail dispatcher, but to see MonMap we would
-     // need to be at the head.
-     assert(0);
+  switch (m->get_type()) {
+    case CEPH_MSG_MON_MAP:
+      // FIXME: we probably never get called here because MonClient
+      // has consumed the message.  For consuming OSDMap we need
+      // to be the tail dispatcher, but to see MonMap we would
+      // need to be at the head.
+      assert(0);
 
-     notify_all("mon_map", "");
-     break;
-   case CEPH_MSG_FS_MAP:
-     notify_all("fs_map", "");
-     handle_fs_map((MFSMap*)m);
-     m->put();
-     break;
-   case CEPH_MSG_OSD_MAP:
+      notify_all("mon_map", "");
+      break;
+    case CEPH_MSG_FS_MAP:
+      notify_all("fs_map", "");
+      handle_fs_map((MFSMap*)m);
+      m->put();
+      break;
+    case CEPH_MSG_OSD_MAP:
 
-     handle_osd_map();
+      handle_osd_map();
 
-     notify_all("osd_map", "");
+      notify_all("osd_map", "");
 
-     // Continuous subscribe, so that we can generate notifications
-     // for our MgrPyModules
-     objecter->maybe_request_map();
-     m->put();
-     break;
-   default:
-     return false;
-   }
-   return true;
+      // Continuous subscribe, so that we can generate notifications
+      // for our MgrPyModules
+      objecter->maybe_request_map();
+      m->put();
+      break;
+
+    case MSG_COMMAND:
+      handle_command(static_cast<MCommand*>(m));
+      m->put();
+      break;
+
+    default:
+      return false;
+  }
+  return true;
 }
 
 
 
 void Mgr::handle_fs_map(MFSMap* m)
 {
-  Mutex::Locker l(lock);
 
   *fsmap = m->get_fsmap();
   if (waiting_for_fs_map) {
@@ -778,5 +790,16 @@ void Mgr::set_config(const std::string &key, const std::string &val)
 
   // FIXME: is config-key put ever allowed to fail?
   assert(set_cmd.r == 0);
+}
+
+
+void Mgr::handle_command(MCommand *m)
+{
+  assert(lock.is_locked_by_me());
+
+  // TODO enforce some caps
+
+  ConnectionRef con = m->get_connection();
+  con->send_message(new MCommandReply(0, "yep!"));
 }
 

@@ -25,7 +25,8 @@ DaemonServer::DaemonServer(MonClient *monc_)
       auth_registry(g_ceph_context,
                     g_conf->auth_supported.empty() ?
                       g_conf->auth_cluster_required :
-                      g_conf->auth_supported)
+                      g_conf->auth_supported),
+      lock("DaemonServer")
 {}
 
 DaemonServer::~DaemonServer() {
@@ -113,6 +114,8 @@ bool DaemonServer::ms_dispatch(Message *m)
   switch(m->get_type()) {
     case MSG_MGR_REPORT:
       return handle_report(static_cast<MMgrReport*>(m));
+    case MSG_MGR_OPEN:
+      return handle_open(static_cast<MMgrOpen*>(m));
     default:
       dout(1) << "Unhandled message type " << m->get_type() << dendl;
       return false;
@@ -163,9 +166,6 @@ bool DaemonServer::handle_report(MMgrReport *m)
 
   auto daemon_counters = perf_counters[key];
   counters->update(m);
-
-  // TODO remove daemons from daemon_counters at some point,
-  // so that they don't just accumulate
   
   m->put();
   return true;
@@ -206,5 +206,23 @@ void DaemonPerfCounters::update(MMgrReport *report)
 void DaemonServer::cull(entity_type_t daemon_type,
                         std::set<std::string> names_exist)
 {
+  Mutex::Locker l(lock);
+
+  std::set<DaemonKey> victims;
+
+  for (const auto &i : perf_counters) {
+    if (i.first.first != daemon_type) {
+      continue;
+    }
+
+    if (names_exist.count(i.first.second) == 0) {
+      victims.insert(i.first);
+    }
+  }
+
+  for (const auto &i : victims) {
+    dout(4) << "Removing data for " << i << dendl;
+    perf_counters.erase(i);
+  }
 }
 

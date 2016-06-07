@@ -17,6 +17,8 @@
 #include <set>
 #include <string>
 
+#include "common/Mutex.h"
+
 #include <msg/Messenger.h>
 #include <mon/MonClient.h>
 
@@ -63,10 +65,13 @@ class DaemonPerfCounters
  */
 class DaemonServer : public Dispatcher
 {
+protected:
   Messenger *msgr;
   MonClient *monc;
 
   AuthAuthorizeHandlerRegistry auth_registry;
+
+  Mutex lock;
 
 public:
   int init(uint64_t gid, entity_addr_t client_addr);

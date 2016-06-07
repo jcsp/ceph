@@ -102,6 +102,8 @@ public:
 
   bool get_config(const std::string &key, std::string *val) const;
   void set_config(const std::string &key, const std::string &val);
+
+  void handle_command(MCommand *m);
 };
 
 #endif /* MDS_UTILITY_H_ */
