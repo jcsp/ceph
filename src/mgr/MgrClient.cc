@@ -14,6 +14,8 @@
 
 #include "MgrClient.h"
 
+#include "mgr/MgrContext.h"
+
 #include "msg/Messenger.h"
 #include "messages/MMgrMap.h"
 #include "messages/MMgrReport.h"
@@ -33,11 +35,15 @@ MgrClient::MgrClient(Messenger *msgr_)
 
 void MgrClient::init()
 {
+  Mutex::Locker l(lock);
+
   timer.init();
 }
 
 void MgrClient::shutdown()
 {
+  Mutex::Locker l(lock);
+
   timer.shutdown();
 }
 
@@ -108,23 +114,6 @@ bool MgrClient::ms_handle_reset(Connection *con)
   return true;
 #endif
 }
-
-class C_StdFunction : public Context
-{
-private:
-  std::function<void()> fn;
-
-public:
-  C_StdFunction(std::function<void()> fn_)
-    : fn(fn_)
-  {}
-
-  void finish(int r)
-  {
-    fn();
-  }
-};
-
 
 
 void MgrClient::send_report()
