@@ -2280,6 +2280,16 @@ int librados::Rados::osd_command(int osdid, std::string cmd, const bufferlist& i
   return client->osd_command(osdid, cmdvec, inbl, outbl, outs);
 }
 
+int librados::Rados::mgr_command(std::string cmd, const bufferlist& inbl,
+                                 bufferlist *outbl, std::string *outs)
+{
+  vector<string> cmdvec;
+  cmdvec.push_back(cmd);
+  return client->mgr_command(cmdvec, inbl, outbl, outs);
+}
+
+
+
 int librados::Rados::pg_command(const char *pgstr, std::string cmd, const bufferlist& inbl,
                                 bufferlist *outbl, std::string *outs)
 {
