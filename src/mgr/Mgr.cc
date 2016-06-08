@@ -24,6 +24,8 @@
 #include "MgrPyModule.h"
 #include "DaemonServer.h"
 #include "messages/MMgrBeacon.h"
+#include "messages/MCommand.h"
+#include "messages/MCommandReply.h"
 #include "PyFormatter.h"
 
 #include "Mgr.h"
@@ -792,14 +794,79 @@ void Mgr::set_config(const std::string &key, const std::string &val)
   assert(set_cmd.r == 0);
 }
 
+struct MgrCommand {
+  string cmdstring;
+  string helpstring;
+  string module;
+  string perm;
+  string availability;
+} mgr_commands[] = {
+
+#define COMMAND(parsesig, helptext, module, perm, availability) \
+  {parsesig, helptext, module, perm, availability},
+
+COMMAND("foo " \
+	"name=bar,type=CephString", \
+	"do a thing", "mgr", "rw", "cli")
+};
 
 void Mgr::handle_command(MCommand *m)
 {
+  int r = 0;
+  std::stringstream ss;
+  std::stringstream ds;
+  bufferlist odata;
+  std::string prefix;
+
   assert(lock.is_locked_by_me());
 
+  map<string, cmd_vartype> cmdmap;
+
   // TODO enforce some caps
+  
+  // TODO background the call into python land so that we don't
+  // block a messenger thread on python code.
 
   ConnectionRef con = m->get_connection();
-  con->send_message(new MCommandReply(0, "yep!"));
+
+  if (!cmdmap_from_json(m->cmd, &cmdmap, ss)) {
+    r = -EINVAL;
+    goto out;
+  }
+
+  cmd_getval(cct, cmdmap, "prefix", prefix);
+
+  if (prefix == "get_command_descriptions") {
+    int cmdnum = 0;
+    JSONFormatter *f = new JSONFormatter();
+    f->open_object_section("command_descriptions");
+    for (MgrCommand *cp = mgr_commands;
+	 cp < &mgr_commands[ARRAY_SIZE(mgr_commands)]; cp++) {
+
+      ostringstream secname;
+      secname << "cmd" << setfill('0') << std::setw(3) << cmdnum;
+      dump_cmddesc_to_json(f, secname.str(), cp->cmdstring, cp->helpstring,
+			   cp->module, cp->perm, cp->availability);
+      cmdnum++;
+    }
+    f->close_section();	// command_descriptions
+
+    f->flush(ds);
+    delete f;
+    goto out;
+  }
+
+ out:
+  std::string rs;
+  rs = ss.str();
+  odata.append(ds);
+  dout(1) << "do_command r=" << r << " " << rs << dendl;
+  //clog->info() << rs << "\n";
+  if (con) {
+    MCommandReply *reply = new MCommandReply(r, rs);
+    reply->set_tid(m->get_tid());
+    reply->set_data(odata);
+    con->send_message(reply);
+  }
 }
 

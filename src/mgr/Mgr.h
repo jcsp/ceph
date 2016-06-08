@@ -34,6 +34,8 @@
 #include "DaemonMetadata.h"
 #include "DaemonServer.h"
 
+class MCommand;
+
 
 class MgrPyModule;
 
