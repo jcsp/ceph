@@ -21,10 +21,12 @@
 
 #include "common/perf_counters.h"
 #include "common/Timer.h"
+#include "common/CommandTable.h"
 
 class MMgrMap;
 class MMgrConfigure;
 class Messenger;
+class MCommandReply;
 
 class MgrSessionState
 {
@@ -36,9 +38,17 @@ class MgrSessionState
   ConnectionRef con;
 };
 
+class MgrCommand : public CommandOp
+{
+  public:
+
+  MgrCommand(ceph_tid_t t) : CommandOp(t) {}
+};
+
 class MgrClient : public Dispatcher
 {
 protected:
+  CephContext *cct;
   MgrMap map;
   Messenger *msgr;
 
@@ -49,9 +59,12 @@ protected:
   uint32_t stats_period;
   SafeTimer     timer;
 
+  CommandTable<MgrCommand> command_table;
 
 public:
-  MgrClient(Messenger *msgr_);
+  MgrClient(CephContext *cct_, Messenger *msgr_);
+
+  void set_messenger(Messenger *msgr_) { msgr = msgr_; }
 
   void init();
   void shutdown();
@@ -62,8 +75,13 @@ public:
 
   bool handle_mgr_map(MMgrMap *m);
   bool handle_mgr_configure(MMgrConfigure *m);
+  bool handle_command_reply(MCommandReply *m);
 
   void send_report();
+
+  int start_command(const vector<string>& cmd, const bufferlist& inbl,
+		    bufferlist *outbl, string *outs,
+		    Context *onfinish);
 };
 
 #endif

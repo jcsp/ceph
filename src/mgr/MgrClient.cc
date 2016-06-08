@@ -21,21 +21,25 @@
 #include "messages/MMgrReport.h"
 #include "messages/MMgrOpen.h"
 #include "messages/MMgrConfigure.h"
+#include "messages/MCommand.h"
+#include "messages/MCommandReply.h"
 
 #define dout_subsys ceph_subsys_mgrc
 #undef dout_prefix
 #define dout_prefix *_dout << "mgrc " << __func__ << " "
 
-MgrClient::MgrClient(Messenger *msgr_)
-    : Dispatcher(g_ceph_context), msgr(msgr_), lock("mgrc"),
-      timer(g_ceph_context, lock)
+MgrClient::MgrClient(CephContext *cct_, Messenger *msgr_)
+    : Dispatcher(cct_), cct(cct_), msgr(msgr_), lock("mgrc"),
+      timer(cct_, lock)
 {
-  assert(msgr != nullptr);
+  assert(cct != nullptr);
 }
 
 void MgrClient::init()
 {
   Mutex::Locker l(lock);
+
+  assert(msgr != nullptr);
 
   timer.init();
 }
@@ -51,14 +55,21 @@ bool MgrClient::ms_dispatch(Message *m)
 {
   Mutex::Locker l(lock);
 
-  dout(20) << *m << dendl;
+  ldout(cct, 20) << *m << dendl;
   switch(m->get_type()) {
   case MSG_MGR_MAP:
     return handle_mgr_map(static_cast<MMgrMap*>(m));
   case MSG_MGR_CONFIGURE:
     return handle_mgr_configure(static_cast<MMgrConfigure*>(m));
+  case MSG_COMMAND_REPLY:
+    if (m->get_source().type() == CEPH_ENTITY_TYPE_MGR) {
+      handle_command_reply(static_cast<MCommandReply*>(m));
+      return true;
+    } else {
+      return false;
+    }
   default:
-    dout(10) << "Not handling " << *m << dendl; 
+    ldout(cct, 10) << "Not handling " << *m << dendl; 
     return false;
   }
 }
@@ -68,25 +79,44 @@ bool MgrClient::handle_mgr_map(MMgrMap *m)
   assert(lock.is_locked_by_me());
 
   map = m->get_map();
-  dout(4) << "Got map version " << map.epoch << dendl;
+  ldout(cct, 4) << "Got map version " << map.epoch << dendl;
   m->put();
 
-  dout(4) << "Active mgr is now " << map.get_active_addr() << dendl;
+  ldout(cct, 4) << "Active mgr is now " << map.get_active_addr() << dendl;
 
-  entity_inst_t inst;
-  inst.addr = map.get_active_addr();
-  inst.name = entity_name_t::MGR(map.get_active_gid());
-
+  // Reset session?
   if (session == nullptr || 
       session->con->get_peer_addr() != map.get_active_addr()) {
+
+    entity_inst_t inst;
+    inst.addr = map.get_active_addr();
+    inst.name = entity_name_t::MGR(map.get_active_gid());
+
     delete session;
     session = new MgrSessionState();
     session->con = msgr->get_connection(inst);
-  }
 
-  auto open = new MMgrOpen();
-  open->daemon_name = g_conf->name.get_id();
-  session->con->send_message(open);
+    // Don't send an open if we're just a client (i.e. doing
+    // command-sending, not stats etc)
+    if (!g_conf->name.is_client()) {
+      auto open = new MMgrOpen();
+      open->daemon_name = g_conf->name.get_id();
+      session->con->send_message(open);
+    }
+
+    std::vector<ceph_tid_t> erase_cmds;
+    auto commands = command_table.get_commands();
+    for (const auto &i : commands) {
+      // FIXME be nicer, retarget command on new mgr?
+      if (i.second->on_finish != nullptr) {
+        i.second->on_finish->complete(-ETIMEDOUT);
+      }
+      erase_cmds.push_back(i.first);
+    }
+    for (const auto &tid : erase_cmds) {
+      command_table.erase(tid);
+    }
+  }
 
   return true;
 }
@@ -122,7 +152,7 @@ void MgrClient::send_report()
   assert(session);
 
   auto report = new MMgrReport();
-  auto pcc = g_ceph_context->get_perfcounters_collection();
+  auto pcc = cct->get_perfcounters_collection();
 
   // TODO: keep a session flag that tells us we've sent schema
   // for all counters, so that we don't have to do N set::set lookups
@@ -163,7 +193,7 @@ void MgrClient::send_report()
     }
   }
 
-  dout(20) << all.size() << " counters, of which "
+  ldout(cct, 20) << all.size() << " counters, of which "
            << report->declare_types.size() << " new" << dendl;
 
   ENCODE_START(1, 1, report->packed);
@@ -180,7 +210,7 @@ void MgrClient::send_report()
   }
   ENCODE_FINISH(report->packed);
 
-  dout(20) << "encoded " << report->packed.length() << " bytes" << dendl;
+  ldout(cct, 20) << "encoded " << report->packed.length() << " bytes" << dendl;
 
   report->daemon_name = g_conf->name.get_id();
 
@@ -196,7 +226,7 @@ bool MgrClient::handle_mgr_configure(MMgrConfigure *m)
 {
   assert(lock.is_locked_by_me());
 
-  dout(4) << "stats_period=" << m->stats_period << dendl;
+  ldout(cct, 4) << "stats_period=" << m->stats_period << dendl;
 
   bool starting = (stats_period == 0) && (m->stats_period != 0);
   stats_period = m->stats_period;
@@ -208,3 +238,58 @@ bool MgrClient::handle_mgr_configure(MMgrConfigure *m)
   return true;
 }
 
+
+int MgrClient::start_command(const vector<string>& cmd, const bufferlist& inbl,
+                  bufferlist *outbl, string *outs,
+                  Context *onfinish)
+{
+  Mutex::Locker l(lock);
+  if (session == nullptr) {
+    // FIXME: be nicer: maybe block until a mgr is available?
+    return -ENOENT;
+  }
+
+  MgrCommand *op = command_table.start_command();
+  op->cmd = cmd;
+  op->inbl = inbl;
+  op->outbl = outbl;
+  op->outs = outs;
+  op->on_finish = onfinish;
+
+  // Leaving fsid argument null because it isn't used.
+  MCommand *m = op->get_message({});
+  session->con->send_message(m);
+
+  return 0;
+}
+
+bool MgrClient::handle_command_reply(MCommandReply *m)
+{
+  assert(lock.is_locked_by_me());
+
+  const auto tid = m->get_tid();
+  const auto op = command_table.get_command(tid);
+  if (op == nullptr) {
+    ldout(cct, 4) << "handle_command_reply tid " << m->get_tid()
+            << " not found" << dendl;
+    m->put();
+    return true;
+  }
+
+  if (op->outbl) {
+    op->outbl->claim(m->get_data());
+  }
+
+  if (op->outs) {
+    *(op->outs) = m->rs;
+  }
+
+  if (op->on_finish) {
+    op->on_finish->complete(m->r);
+  }
+
+  command_table.erase(tid);
+
+  m->put();
+  return true;
+}
