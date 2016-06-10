@@ -13,6 +13,9 @@
  */
 
 
+#ifndef MGR_PY_MODULE_H_
+#define MGR_PY_MODULE_H_
+
 // Python.h comes first because otherwise it clobbers ceph's assert
 #include "Python.h"
 
@@ -35,4 +38,5 @@ public:
   void notify(const std::string &notify_type, const std::string &notify_id);
 };
 
+#endif
 

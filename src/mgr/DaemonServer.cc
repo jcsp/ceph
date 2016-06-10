@@ -15,13 +15,16 @@
 
 #include "messages/MMgrOpen.h"
 #include "messages/MMgrConfigure.h"
+#include "messages/MCommand.h"
+#include "messages/MCommandReply.h"
 
 #define dout_subsys ceph_subsys_mgr
 #undef dout_prefix
 #define dout_prefix *_dout << "mgr.server " << __func__ << " "
 
-DaemonServer::DaemonServer(MonClient *monc_)
+DaemonServer::DaemonServer(MonClient *monc_, DaemonMetadataIndex &daemon_state_)
     : Dispatcher(g_ceph_context), msgr(nullptr), monc(monc_),
+      daemon_state(daemon_state_),
       auth_registry(g_ceph_context,
                     g_conf->auth_supported.empty() ?
                       g_conf->auth_cluster_required :
@@ -111,11 +114,15 @@ bool DaemonServer::ms_get_authorizer(int dest_type,
 
 bool DaemonServer::ms_dispatch(Message *m)
 {
+  Mutex::Locker l(lock);
+
   switch(m->get_type()) {
     case MSG_MGR_REPORT:
       return handle_report(static_cast<MMgrReport*>(m));
     case MSG_MGR_OPEN:
       return handle_open(static_cast<MMgrOpen*>(m));
+    case MSG_COMMAND:
+      return handle_command(static_cast<MCommand*>(m));
     default:
       dout(1) << "Unhandled message type " << m->get_type() << dendl;
       return false;
@@ -156,73 +163,100 @@ bool DaemonServer::handle_report(MMgrReport *m)
   dout(4) << "from " << m->get_connection() << " name "
           << m->daemon_name << dendl;
 
-  std::shared_ptr<DaemonPerfCounters> counters;
-  if (perf_counters.count(key)) {
-    counters = perf_counters.at(key);
+  DaemonMetadataPtr daemon;
+  if (daemon_state.exists(key)) {
+    daemon = daemon_state.get(key);
   } else {
-    counters = std::make_shared<DaemonPerfCounters>(types);
-    perf_counters.insert(std::make_pair(key, counters));
+    daemon = std::make_shared<DaemonMetadata>(daemon_state.types);
+    // FIXME: crap, we don't know the hostname at this stage.
+    daemon->key = key;
+    daemon_state.insert(daemon);
   }
 
-  auto daemon_counters = perf_counters[key];
-  counters->update(m);
+  assert(daemon != nullptr);
+  auto daemon_counters = daemon->perf_counters;
+  daemon_counters.update(m);
   
   m->put();
   return true;
 }
 
-void DaemonPerfCounters::update(MMgrReport *report)
+struct MgrCommand {
+  string cmdstring;
+  string helpstring;
+  string module;
+  string perm;
+  string availability;
+} mgr_commands[] = {
+
+#define COMMAND(parsesig, helptext, module, perm, availability) \
+  {parsesig, helptext, module, perm, availability},
+
+COMMAND("foo " \
+	"name=bar,type=CephString", \
+	"do a thing", "mgr", "rw", "cli")
+};
+
+bool DaemonServer::handle_command(MCommand *m)
 {
-  dout(20) << "loading " << report->declare_types.size() << " new types, "
-           << report->packed.length() << " bytes of data" << dendl;
+  int r = 0;
+  std::stringstream ss;
+  std::stringstream ds;
+  bufferlist odata;
+  std::string prefix;
 
-  // Load any newly declared types
-  for (const auto &t : report->declare_types) {
-    types.insert(std::make_pair(t.path, t));
-    declared_types.insert(t.path);
+  assert(lock.is_locked_by_me());
+
+  map<string, cmd_vartype> cmdmap;
+
+  // TODO enforce some caps
+  
+  // TODO background the call into python land so that we don't
+  // block a messenger thread on python code.
+
+  ConnectionRef con = m->get_connection();
+
+  if (!cmdmap_from_json(m->cmd, &cmdmap, ss)) {
+    r = -EINVAL;
+    goto out;
   }
 
-  // Parse packed data according to declared set of types
-  bufferlist::iterator p = report->packed.begin();
-  DECODE_START(1, p);
-  for (const auto &t_path : declared_types) {
-    const auto &t = types.at(t_path);
-    uint64_t val = 0;
-    uint64_t avgcount = 0;
-    uint64_t avgcount2 = 0;
+  cmd_getval(cct, cmdmap, "prefix", prefix);
 
-    ::decode(val, p);
-    if (t.type & PERFCOUNTER_LONGRUNAVG) {
-      ::decode(avgcount, p);
-      ::decode(avgcount2, p);
+  if (prefix == "get_command_descriptions") {
+    int cmdnum = 0;
+    JSONFormatter *f = new JSONFormatter();
+    f->open_object_section("command_descriptions");
+    for (MgrCommand *cp = mgr_commands;
+	 cp < &mgr_commands[ARRAY_SIZE(mgr_commands)]; cp++) {
+
+      ostringstream secname;
+      secname << "cmd" << setfill('0') << std::setw(3) << cmdnum;
+      dump_cmddesc_to_json(f, secname.str(), cp->cmdstring, cp->helpstring,
+			   cp->module, cp->perm, cp->availability);
+      cmdnum++;
     }
-    // TODO: interface for insertion of avgs, add timestamp
-    instances[t_path].push(val);
-  }
-  // TODO: handle badly encoded things without asserting out
-  DECODE_FINISH(p);
-}
+    f->close_section();	// command_descriptions
 
-void DaemonServer::cull(entity_type_t daemon_type,
-                        std::set<std::string> names_exist)
-{
-  Mutex::Locker l(lock);
-
-  std::set<DaemonKey> victims;
-
-  for (const auto &i : perf_counters) {
-    if (i.first.first != daemon_type) {
-      continue;
-    }
-
-    if (names_exist.count(i.first.second) == 0) {
-      victims.insert(i.first);
-    }
+    f->flush(ds);
+    delete f;
+    goto out;
   }
 
-  for (const auto &i : victims) {
-    dout(4) << "Removing data for " << i << dendl;
-    perf_counters.erase(i);
+ out:
+  std::string rs;
+  rs = ss.str();
+  odata.append(ds);
+  dout(1) << "do_command r=" << r << " " << rs << dendl;
+  //clog->info() << rs << "\n";
+  if (con) {
+    MCommandReply *reply = new MCommandReply(r, rs);
+    reply->set_tid(m->get_tid());
+    reply->set_data(odata);
+    con->send_message(reply);
   }
+
+  m->put();
+  return true;
 }
 

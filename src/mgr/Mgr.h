@@ -31,8 +31,12 @@
 #include "auth/Auth.h"
 #include "common/Finisher.h"
 #include "common/Timer.h"
-#include "DaemonMetadata.h"
+
 #include "DaemonServer.h"
+#include "PyModules.h"
+
+#include "DaemonMetadata.h"
+#include "ClusterState.h"
 
 class MCommand;
 
@@ -41,25 +45,9 @@ class MgrPyModule;
 
 class Mgr : public Dispatcher {
 protected:
-  Objecter *objecter;
-  FSMap *fsmap;
-  Messenger *client_messenger;
-
-public:
-  // FIXME just exposing this for the moment
-  // for ceph_send_command
+  Objecter  *objecter;
   MonClient *monc;
-
-  // Public so that MonCommandCompletion can use it
-  // FIXME: bit weird that we're sending command completions
-  // to all modules (we rely on them to ignore anything that
-  // they don't recognise), but when we get called from
-  // python-land we don't actually know who we are.  Need
-  // to give python-land a handle in initialisation.
-  void notify_all(const std::string &notify_type,
-                  const std::string &notify_id);
-
-protected:
+  Messenger *client_messenger;
 
   Mutex lock;
   SafeTimer timer;
@@ -67,17 +55,16 @@ protected:
 
   Context *waiting_for_fs_map;
 
-  std::list<MgrPyModule*> modules;
-
-  DaemonMetadataIndex dmi;
-
-  void load_all_metadata();
+  PyModules py_modules;
+  DaemonMetadataIndex daemon_state;
+  ClusterState cluster_state;
 
   DaemonServer server;
 
-  std::map<std::string, std::string> config_cache;
-
   void load_config();
+  void load_all_metadata();
+
+
 
 public:
   Mgr();
@@ -94,18 +81,6 @@ public:
   void shutdown();
   void usage() {}
   int main(vector<const char *> args);
-
-  void dump_server(const std::string &hostname,
-                   const DaemonMetadataCollection &dmc,
-                   Formatter *f);
-  PyObject *get_python(const std::string &what);
-  PyObject *get_server_python(const std::string &hostname);
-  PyObject *list_servers_python();
-
-  bool get_config(const std::string &key, std::string *val) const;
-  void set_config(const std::string &key, const std::string &val);
-
-  void handle_command(MCommand *m);
 };
 
 #endif /* MDS_UTILITY_H_ */

@@ -17,6 +17,9 @@
 #include <memory>
 #include "include/Context.h"
 
+#include "common/ceph_json.h"
+#include "mon/MonClient.h"
+
 class C_StdFunction : public Context
 {
 private:
@@ -30,6 +33,49 @@ public:
   void finish(int r)
   {
     fn();
+  }
+};
+
+class Command
+{
+protected:
+  C_SaferCond cond;
+public:
+  bufferlist outbl;
+  std::string outs;
+  int r;
+
+  void run(MonClient *monc, const std::string &command)
+  {
+    monc->start_mon_command({command}, {},
+        &outbl, &outs, &cond);
+  }
+
+  virtual void wait()
+  {
+    r = cond.wait();
+  }
+
+  virtual ~Command() {}
+};
+
+
+class JSONCommand : public Command
+{
+public:
+  json_spirit::mValue json_result;
+
+  void wait()
+  {
+    Command::wait();
+
+    if (r == 0) {
+      bool read_ok = json_spirit::read(
+          outbl.to_str(), json_result);
+      if (!read_ok) {
+        r = -EINVAL;
+      }
+    }
   }
 };
 

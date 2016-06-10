@@ -14,25 +14,86 @@
 #ifndef DAEMON_METADATA_H_
 #define DAEMON_METADATA_H_
 
+// TODO: rename me to DaemonState from DaemonMetadata
+
 #include <map>
 #include <string>
 #include <memory>
 #include <set>
 
+#include "common/Mutex.h"
+
 #include "msg/msg_types.h"
 
+// For PerfCounterType
+#include "messages/MMgrReport.h"
+
+
+// Unique reference to a daemon within a cluster
 typedef std::pair<entity_type_t, std::string> DaemonKey;
 
+// An instance of a performance counter type, within
+// a particular daemon.
+class PerfCounterInstance
+{
+  // TODO: store some short history or whatever
+  uint64_t current;
+  public:
+  void push(uint64_t const &v) {current = v;}
+};
+
+
+typedef std::map<std::string, PerfCounterType> PerfCounterTypes;
+
+// Performance counters for one daemon
+class DaemonPerfCounters
+{
+  public:
+  // The record of perf stat types, shared between daemons
+  PerfCounterTypes &types;
+
+  DaemonPerfCounters(PerfCounterTypes &types_)
+    : types(types_)
+  {}
+
+  std::map<std::string, PerfCounterInstance> instances;
+
+  // FIXME: this state is really local to DaemonServer, it's part
+  // of the protocol rather than being part of what other classes
+  // mgiht want to read.  Maybe have a separate session object
+  // inside DaemonServer instead of stashing session-ish state here?
+  std::set<std::string> declared_types;
+
+  void update(MMgrReport *report);
+};
+
+// The state that we store about one daemon
 class DaemonMetadata
 {
   public:
   DaemonKey key;
+
+  // The hostname where daemon was last seen running (extracted
+  // from the metadata)
   std::string hostname;
+
+  // The metadata (hostname, version, etc) sent from the daemon
   std::map<std::string, std::string> metadata;
+
+  // The perf counters received in MMgrReport messages
+  DaemonPerfCounters perf_counters;
+
+  DaemonMetadata(PerfCounterTypes &types_)
+    : perf_counters(types_)
+  {
+  }
 };
 
 typedef std::shared_ptr<DaemonMetadata> DaemonMetadataPtr;
 typedef std::map<DaemonKey, DaemonMetadataPtr> DaemonMetadataCollection;
+
+
+
 
 /**
  * Fuse the collection of per-daemon metadata from Ceph into
@@ -47,9 +108,18 @@ class DaemonMetadataIndex
 
   std::set<DaemonKey> updating;
 
+  Mutex lock;
+
   public:
+
+  DaemonMetadataIndex() : lock("DaemonState") {}
+
+  // FIXME: shouldn't really be public, maybe construct DaemonMetadata
+  // objects internally to avoid this.
+  PerfCounterTypes types;
+
   void insert(DaemonMetadataPtr dm);
-  void erase(DaemonKey dmk);
+  void _erase(DaemonKey dmk);
 
   bool exists(const DaemonKey &key) const;
   DaemonMetadataPtr get(const DaemonKey &key);
@@ -72,7 +142,7 @@ class DaemonMetadataIndex
    * a cluster map and want to ensure that anything absent in the map
    * is also absent in this class.
    */
-  void cull(entity_type_t daemon_type, std::set<std::string> names_exist){}
+  void cull(entity_type_t daemon_type, std::set<std::string> names_exist);
 };
 
 #endif

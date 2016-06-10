@@ -22,7 +22,7 @@
 
 #include "PyState.h"
 
-Mgr *global_handle = NULL;
+PyModules *global_handle = NULL;
 
 
 class MonCommandCompletion : public Context
@@ -95,7 +95,7 @@ ceph_send_command(PyObject *self, PyObject *args)
   Py_DECREF(set_fn);
 
   auto c = new MonCommandCompletion(completion, tag);
-  auto r = global_handle->monc->start_mon_command(
+  auto r = global_handle->get_monc().start_mon_command(
       {cmd_json},
       {},
       &c->outbl,

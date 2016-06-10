@@ -546,6 +546,8 @@ if (WITH_MGR)
       ceph_mgr.cc
       mgr/DaemonMetadata.cc
       mgr/DaemonServer.cc
+      mgr/ClusterState.cc
+      mgr/PyModules.cc
       mgr/PyFormatter.cc
       mgr/PyState.cc
       mgr/MgrPyModule.cc

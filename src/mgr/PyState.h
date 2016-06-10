@@ -3,9 +3,9 @@
 
 #include "Python.h"
 
-class Mgr;
+class PyModules;
 
-extern Mgr *global_handle;
+extern PyModules *global_handle;
 extern PyMethodDef CephStateMethods[];
 
 #endif

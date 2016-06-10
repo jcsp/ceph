@@ -24,40 +24,12 @@
 
 #include "auth/AuthAuthorizeHandler.h"
 
-// For PerfCounterType
-#include "messages/MMgrReport.h"
-
-// For DaemonKey (move it somewhere else?)
 #include "DaemonMetadata.h"
 
 class MMgrReport;
 class MMgrOpen;
+class MCommand;
 
-typedef std::map<std::string, PerfCounterType> PerfCounterTypes;
-
-class PerfCounterInstance
-{
-  // TODO: store some short history or whatever
-  uint64_t current;
-  public:
-  void push(uint64_t const &v) {current = v;}
-};
-
-class DaemonPerfCounters
-{
-  public:
-  // The record of perf stat types, shared between daemons
-  PerfCounterTypes &types;
-
-  DaemonPerfCounters(PerfCounterTypes &types_)
-    : types(types_)
-  {}
-
-  std::map<std::string, PerfCounterInstance> instances;
-  std::set<std::string> declared_types;
-
-  void update(MMgrReport *report);
-};
 
 /**
  * Server used in ceph-mgr to communicate with Ceph daemons like
@@ -68,10 +40,12 @@ class DaemonServer : public Dispatcher
 protected:
   Messenger *msgr;
   MonClient *monc;
+  DaemonMetadataIndex &daemon_state;
 
   AuthAuthorizeHandlerRegistry auth_registry;
 
   Mutex lock;
+
 
 public:
   int init(uint64_t gid, entity_addr_t client_addr);
@@ -79,7 +53,7 @@ public:
 
   entity_addr_t get_myaddr() const;
 
-  DaemonServer(MonClient *monc_);
+  DaemonServer(MonClient *monc_, DaemonMetadataIndex &daemon_state_);
   ~DaemonServer();
 
   bool ms_dispatch(Message *m);
@@ -97,17 +71,7 @@ public:
 
   bool handle_open(MMgrOpen *m);
   bool handle_report(MMgrReport *m);
-
-  PerfCounterTypes types;
-  std::map<DaemonKey, std::shared_ptr<DaemonPerfCounters> > perf_counters;
-
-  /**
-   * Remove state for all daemons of this type whose names are
-   * not present in `names_exist`.  Use this function when you have
-   * a cluster map and want to ensure that anything absent in the map
-   * is also absent in this class.
-   */
-  void cull(entity_type_t daemon_type, std::set<std::string> names_exist);
+  bool handle_command(MCommand *m);
 };
 
 #endif
