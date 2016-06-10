@@ -381,6 +381,7 @@ class CephName(CephArgtype):
         elif s == "mgr":
             self.nametype = "mgr"
             self.val = s
+            return
         if s.find('.') == -1:
             raise ArgumentFormat('CephName: no . in {0}'.format(s))
         else:
