@@ -3121,7 +3121,30 @@ extern "C" int rados_osd_command(rados_t cluster, int osdid, const char **cmd,
   return ret;
 }
 
+extern "C" int rados_mgr_command(rados_t cluster, const char **cmd,
+				 size_t cmdlen,
+				 const char *inbuf, size_t inbuflen,
+				 char **outbuf, size_t *outbuflen,
+				 char **outs, size_t *outslen)
+{
+  librados::RadosClient *client = (librados::RadosClient *)cluster;
+  bufferlist inbl;
+  bufferlist outbl;
+  string outstring;
+  vector<string> cmdvec;
 
+  for (size_t i = 0; i < cmdlen; i++) {
+    tracepoint(librados, rados_mgr_command_cmd, cmd[i]);
+    cmdvec.push_back(cmd[i]);
+  }
+
+  inbl.append(inbuf, inbuflen);
+  int ret = client->mgr_command(cmdvec, inbl, &outbl, &outstring);
+
+  do_out_buffer(outbl, outbuf, outbuflen);
+  do_out_buffer(outstring, outs, outslen);
+  return ret;
+}
 
 extern "C" int rados_pg_command(rados_t cluster, const char *pgstr,
 				const char **cmd, size_t cmdlen,

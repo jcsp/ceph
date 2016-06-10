@@ -299,6 +299,9 @@ int librados::RadosClient::connect()
 
   timer.init();
 
+  // MgrClient needs this (it doesn't have MonClient reference itself)
+  monclient.sub_want("mgrmap", 0, 0);
+
   monclient.renew_subs();
 
   finisher.start();
@@ -795,7 +798,13 @@ int librados::RadosClient::mgr_command(const vector<string>& cmd,
 {
   Mutex::Locker l(lock);
 
-  *outs = "ohai";
+  C_SaferCond cond;
+  mgrclient.start_command(cmd, inbl, outbl, outs, &cond);
+
+  lock.Unlock();
+  int r = cond.wait();
+  lock.Lock();
+
   return 0;
 }
 
@@ -927,9 +936,6 @@ int librados::RadosClient::monitor_log(const string& level, rados_log_callback_t
   // (re)start watch
   ldout(cct, 10) << __func__ << " add cb " << (void*)cb << " level " << level << dendl;
   monclient.sub_want(watch_level, 0, 0);
-
-  // MgrClient needs this (it doesn't have MonClient reference itself)
-  monclient.sub_want("mgrmap", 0, 0);
 
   monclient.renew_subs();
   log_cb = cb;
