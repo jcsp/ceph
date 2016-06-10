@@ -58,8 +58,10 @@ public:
   T* start_command()
   {
     ceph_tid_t tid = last_tid++;
+    auto cmd = new T(tid);
+    commands[tid] = cmd;
     
-    return new T(tid);
+    return cmd;
   }
 
   const std::map<ceph_tid_t, T*> &get_commands() const
