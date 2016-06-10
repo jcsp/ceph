@@ -98,7 +98,7 @@ bool MgrClient::handle_mgr_map(MMgrMap *m)
 
     // Don't send an open if we're just a client (i.e. doing
     // command-sending, not stats etc)
-    if (!g_conf->name.is_client()) {
+    if (g_conf && !g_conf->name.is_client()) {
       auto open = new MMgrOpen();
       open->daemon_name = g_conf->name.get_id();
       session->con->send_message(open);
@@ -117,6 +117,8 @@ bool MgrClient::handle_mgr_map(MMgrMap *m)
       command_table.erase(tid);
     }
   }
+
+  signal_cond_list(waiting_for_map);
 
   return true;
 }
@@ -238,13 +240,36 @@ bool MgrClient::handle_mgr_configure(MMgrConfigure *m)
   return true;
 }
 
+void MgrClient::wait_on_list(list<Cond*>& ls)
+{
+  Cond cond;
+  ls.push_back(&cond);
+  cond.Wait(lock);
+  ls.remove(&cond);
+}
+
+void MgrClient::signal_cond_list(list<Cond*>& ls)
+{
+  for (list<Cond*>::iterator it = ls.begin(); it != ls.end(); ++it)
+    (*it)->Signal();
+}
 
 int MgrClient::start_command(const vector<string>& cmd, const bufferlist& inbl,
                   bufferlist *outbl, string *outs,
                   Context *onfinish)
 {
   Mutex::Locker l(lock);
+
+  ldout(cct, 20) << "cmd: " << cmd << dendl;
+
+  if (map.epoch == 0) {
+    ldout(cct, 4) << "no map yet, waiting..." << dendl;
+    wait_on_list(waiting_for_map);
+  }
+  ldout(cct, 4) << "proceeding with map " << map.epoch << dendl;
+
   if (session == nullptr) {
+    derr << "no session" << dendl;
     // FIXME: be nicer: maybe block until a mgr is available?
     return -ENOENT;
   }
