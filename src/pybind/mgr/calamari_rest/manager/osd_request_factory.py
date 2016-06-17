@@ -1,8 +1,8 @@
 from calamari_rest.manager.request_factory import RequestFactory
 from calamari_rest.types import OsdMap, OSD_IMPLEMENTED_COMMANDS, OSD_FLAGS
 from calamari_rest.manager.user_request import OsdMapModifyingRequest, RadosRequest
-from mgr_data import get_sync_object
 
+from rest import global_instance as rest_plugin
 
 class OsdRequestFactory(RequestFactory):
     """
@@ -12,7 +12,7 @@ class OsdRequestFactory(RequestFactory):
     def update(self, osd_id, attributes):
         commands = []
 
-        osd_map = get_sync_object(OsdMap)
+        osd_map = rest_plugin().get_sync_object(OsdMap)
 
         # in/out/down take a vector of strings called 'ids', while 'reweight' takes a single integer
 
@@ -75,7 +75,7 @@ class OsdRequestFactory(RequestFactory):
         For each OSD in osds list valid commands
         """
         ret_val = {}
-        osd_map = get_sync_object(OsdMap)
+        osd_map = rest_plugin().get_sync_object(OsdMap)
         for osd_id in osds:
             if osd_map.osds_by_id[osd_id]['up']:
                 ret_val[osd_id] = {'valid_commands': OSD_IMPLEMENTED_COMMANDS}
@@ -105,7 +105,7 @@ class OsdRequestFactory(RequestFactory):
 
     def update_config(self, _, attributes):
 
-        osd_map = get_sync_object(OsdMap)
+        osd_map = rest_plugin().get_sync_object(OsdMap)
 
         commands = self._commands_to_set_flags(osd_map, attributes)
 

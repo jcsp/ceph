@@ -3,7 +3,8 @@ from calamari_rest.manager.request_factory import RequestFactory
 from calamari_rest.types import OsdMap, Config
 from calamari_rest.manager.user_request import OsdMapModifyingRequest, \
     PgCreatingRequest, PoolCreatingRequest
-from mgr_data import get_sync_object
+
+from rest import global_instance as rest_plugin
 
 from mgr_log import log
 
@@ -17,7 +18,7 @@ LEGACY_MON_OSD_MAX_SPLIT_COUNT = "32"
 
 class PoolRequestFactory(RequestFactory):
     def _resolve_pool(self, pool_id):
-        osd_map = get_sync_object(OsdMap)
+        osd_map = rest_plugin().get_sync_object(OsdMap)
         return osd_map.pools_by_id[pool_id]
 
     def _pool_attribute_commands(self, pool_name, attributes):
@@ -79,7 +80,7 @@ class PoolRequestFactory(RequestFactory):
             commands)
 
     def update(self, pool_id, attributes):
-        osd_map = get_sync_object(OsdMap)
+        osd_map = rest_plugin().get_sync_object(OsdMap)
         pool = self._resolve_pool(pool_id)
         pool_name = pool['pool_name']
 
@@ -101,7 +102,7 @@ class PoolRequestFactory(RequestFactory):
             # This setting is new in Ceph Firefly, where it defaults to 32.
             # For older revisions, we simply pretend that the setting exists
             # with a default setting.
-            mon_osd_max_split_count = int(get_sync_object(Config).get(
+            mon_osd_max_split_count = int(rest_plugin().get_sync_object(Config).get(
                 'mon_osd_max_split_count', LEGACY_MON_OSD_MAX_SPLIT_COUNT))
             initial_pg_count = pool['pg_num']
             n_osds = min(initial_pg_count, len(osd_map.osds_by_id))

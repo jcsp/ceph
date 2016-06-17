@@ -24,12 +24,11 @@ from calamari_rest.types import CRUSH_RULE, POOL, OSD, USER_REQUEST_COMPLETE, US
     OSD_IMPLEMENTED_COMMANDS, MON, OSD_MAP, SYNC_OBJECT_TYPES, ServiceId, severity_from_str, SEVERITIES, \
     OsdMap, Config, MonMap
 
-
 class Event(object):
     pass
 
 
-log = logging.getLogger('django.request')
+from mgr_log import log
 
 
 #class RequestViewSet(RPCViewSet, PaginatedMixin):
@@ -411,6 +410,9 @@ Filtering is available on this resource:
     serializer_class = OsdSerializer
 
     def list(self, request):
+        return self._list(request)
+
+    def _list(self, request):
         # Get data needed for filtering
         list_filter = {}
 

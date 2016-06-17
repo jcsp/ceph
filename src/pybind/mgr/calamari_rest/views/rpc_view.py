@@ -20,9 +20,9 @@ from calamari_rest.types import OsdMap, SYNC_OBJECT_STR_TYPE, OSD, OSD_MAP, POOL
     NotFound, SERVER
 config = CalamariConfig()
 
-from rest import state as rest_state
+from rest import global_instance as rest_plugin
+
 from mgr_log import log
-import mgr_data
 
 
 class DataObject(object):
@@ -44,7 +44,7 @@ class MgrClient(object):
         }
 
     def get_sync_object(self, object_type, path=None):
-        return mgr_data.get_sync_object(object_type, path)
+        return rest_plugin().get_sync_object(object_type, path)
 
     def get(self, object_type, object_id):
         """
@@ -92,7 +92,7 @@ class MgrClient(object):
     def list_requests(self, filter_args):
         state = filter_args.get('state', None)
         fsid = filter_args.get('fsid', None)
-        requests = rest_state.requests.get_all()
+        requests = rest_plugin().requests.get_all()
         return sorted([self._dump_request(r)
                        for r in requests
                        if (state is None or r.state == state) and (fsid is None or r.fsid == fsid)],
@@ -116,13 +116,13 @@ class MgrClient(object):
         Get a JSON representation of a UserRequest
         """
         try:
-            return self._dump_request(rest_state.requests.get_by_id(request_id))
+            return self._dump_request(rest_plugin().requests.get_by_id(request_id))
         except KeyError:
             raise NotFound('request', request_id)
 
     def cancel_request(self, request_id):
         try:
-            rest_state.requests.cancel(request_id)
+            rest_plugin().requests.cancel(request_id)
             return self.get_request(request_id)
         except KeyError:
             raise NotFound('request', request_id)
@@ -206,12 +206,10 @@ class MgrClient(object):
         request_factory = self.get_request_factory(obj_type)
         request = getattr(request_factory, method)(*args, **kwargs)
 
-        from rest import state
-
         if request:
             # sleeps permitted during terminal phase of submitting, because we're
             # doing I/O to the salt master to kick off
-            state.requests.submit(request)
+            rest_plugin().requests.submit(request)
             return {
                 'request_id': request.id
             }
@@ -219,10 +217,10 @@ class MgrClient(object):
             return None
 
     def server_get(self, fqdn):
-        return mgr_data.get_server(fqdn)
+        return rest_plugin().get_server(fqdn)
 
     def server_list(self):
-        return mgr_data.list_servers()
+        return rest_plugin().list_servers()
 
 
 class RPCView(APIView):

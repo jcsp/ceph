@@ -6,8 +6,8 @@ import uuid
 from calamari_rest.types import OsdMap, PgSummary, USER_REQUEST_COMPLETE, USER_REQUEST_SUBMITTED
 from calamari_rest.util import now
 
-
 from mgr_log import log
+from rest import global_instance as rest_plugin
 
 
 class UserRequestBase(object):
@@ -188,10 +188,6 @@ class UserRequest(UserRequestBase):
         return self._headline
 
 
-# This is our magic hook into C++ land
-import ceph_state  # NOQA
-
-
 class RadosCommands(object):
     def __init__(self, tag, commands):
         self.result = None
@@ -214,7 +210,7 @@ class RadosCommands(object):
         command = cmd[1]
         command['prefix'] = cmd[0]
 
-        ceph_state.send_command(self.result, json.dumps(command), self._tag)
+        rest_plugin().send_command(self.result, json.dumps(command), self._tag)
 
     def is_complete(self):
         return self.result is None and not self._commands

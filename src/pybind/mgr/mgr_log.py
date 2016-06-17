@@ -9,3 +9,4 @@ import logging
 log = logging.getLogger("rest")
 log.setLevel(logging.DEBUG)
 log.addHandler(logging.StreamHandler())
+log.addHandler(logging.FileHandler("./rest.log"))
