@@ -42,6 +42,12 @@ void MgrClient::init()
   assert(msgr != nullptr);
 
   timer.init();
+
+  if (map.epoch == 0) {
+    ldout(cct, 4) << "no map yet, waiting..." << dendl;
+    wait_on_list(waiting_for_map);
+  }
+  ldout(cct, 4) << "proceeding with map " << map.epoch << dendl;
 }
 
 void MgrClient::shutdown()
@@ -242,6 +248,8 @@ bool MgrClient::handle_mgr_configure(MMgrConfigure *m)
 
 void MgrClient::wait_on_list(list<Cond*>& ls)
 {
+  assert(lock.is_locked_by_me());
+
   Cond cond;
   ls.push_back(&cond);
   cond.Wait(lock);
@@ -262,11 +270,9 @@ int MgrClient::start_command(const vector<string>& cmd, const bufferlist& inbl,
 
   ldout(cct, 20) << "cmd: " << cmd << dendl;
 
-  if (map.epoch == 0) {
-    ldout(cct, 4) << "no map yet, waiting..." << dendl;
-    wait_on_list(waiting_for_map);
-  }
-  ldout(cct, 4) << "proceeding with map " << map.epoch << dendl;
+  assert(map.epoch > 0);
+
+
 
   if (session == nullptr) {
     derr << "no session" << dendl;
