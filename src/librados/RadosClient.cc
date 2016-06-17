@@ -291,6 +291,10 @@ int librados::RadosClient::connect()
   }
   messenger->set_myname(entity_name_t::CLIENT(monclient.get_global_id()));
 
+  // MgrClient needs this (it doesn't have MonClient reference itself)
+  monclient.sub_want("mgrmap", 0, 0);
+  monclient.renew_subs();
+
   mgrclient.init();
 
   objecter->set_client_incarnation(0);
@@ -298,11 +302,6 @@ int librados::RadosClient::connect()
   lock.Lock();
 
   timer.init();
-
-  // MgrClient needs this (it doesn't have MonClient reference itself)
-  monclient.sub_want("mgrmap", 0, 0);
-
-  monclient.renew_subs();
 
   finisher.start();
 
