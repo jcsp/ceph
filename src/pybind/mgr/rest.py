@@ -15,6 +15,8 @@ import os
 import logging
 import logging.config
 import json
+import uuid
+import errno
 
 import cherrypy
 from django.core.servers.basehttp import get_internal_wsgi_application
@@ -47,10 +49,28 @@ def recurse_refs(root, path):
 class Module(MgrModule):
     COMMANDS = [
             {
-                "cmd": "foo name=bar,type=CephString",
-                "desc": "do a thing",
+                "cmd": "enable_auth "
+                       "name=val,type=CephChoices,strings=true|false",
+                "desc": "Set whether to authenticate API access by key",
                 "perm": "rw"
-            }
+            },
+            {
+                "cmd": "auth_key_create "
+                       "name=key_name,type=CephString",
+                "desc": "Create an API key with this name",
+                "perm": "rw"
+            },
+            {
+                "cmd": "auth_key_delete "
+                       "name=key_name,type=CephString",
+                "desc": "Delete an API key with this name",
+                "perm": "rw"
+            },
+            {
+                "cmd": "auth_key_list",
+                "desc": "List all API keys",
+                "perm": "rw"
+            },
     ]
 
     def __init__(self, *args, **kwargs):
@@ -122,19 +142,47 @@ class Module(MgrModule):
         })
         cherrypy.tree.graft(app, '/')
 
-        # Dowser is a python memory debugging tool
-        # import dowser
-        # cherrypy.tree.mount(dowser.Root(), "/dowser")
-
         cherrypy.engine.start()
         cherrypy.engine.block()
+
+    def _generate_key(self):
+        return uuid.uuid4().__str__()
+
+    def _load_keys(self):
+        loaded_keys = self.get_config_json("keys")
+        if loaded_keys is None:
+            return {}
+        else:
+            return loaded_keys
+
+    def _save_keys(self, keys):
+        self.set_config_json("keys", keys)
 
     def handle_command(self, cmd):
         log.info("handle_command: {0}".format(json.dumps(cmd, indent=2)))
         prefix = cmd['prefix']
-        if prefix == "foo":
-            return (0, "", "")
+        if prefix == "enable_auth":
+            enable = cmd['val'] == "true"
+            self.set_config_json("enable_auth", enable)
+        elif prefix == "auth_key_create":
+            keys = self._load_keys()
+            if cmd['key_name'] in keys:
+                return 0, keys[cmd['key_name']], ""
+            else:
+                keys[cmd['key_name']] = self._generate_key()
+                self._save_keys(keys)
+
+            return 0, keys[cmd['key_name']], ""
+        elif prefix == "auth_key_delete":
+            keys = self._load_keys()
+            if cmd['key_name'] in keys:
+                del keys[cmd['key_name']]
+                self._save_keys(keys)
+
+            return 0, "", ""
+        elif prefix == "auth_key_list":
+            return 0, json.dumps(self._load_keys(), indent=2), ""
         else:
-            raise NotImplementedError(prefix)
+            return -errno.EINVAL, "", "Command not found '{0}'".format(prefix)
 
 

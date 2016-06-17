@@ -1,5 +1,6 @@
 
 import ceph_state  #noqa
+import json
 
 
 class MgrModule(object):
@@ -69,3 +70,43 @@ class MgrModule(object):
         # Should never get called if they didn't declare
         # any ``COMMANDS``
         raise NotImplementedError()
+
+    def get_config(self, key):
+        """
+        Retrieve the value of a persistent configuration setting
+
+        :param key: str
+        :return: str
+        """
+        return ceph_state.get_config(self._handle, key)
+
+    def set_config(self, key, val):
+        """
+        Set the value of a persistent configuration setting
+
+        :param key: str
+        :param val: str
+        """
+        ceph_state.set_config(self._handle, key, val)
+
+    def set_config_json(self, key, val):
+        """
+        Helper for setting json-serialized-config
+
+        :param key: str
+        :param val: json-serializable object
+        """
+        self.set_config(key, json.dumps(val))
+
+    def get_config_json(self, key):
+        """
+        Helper for getting json-serialized config
+
+        :param key: str
+        :return: object
+        """
+        raw = self.get_config(key)
+        if raw is None:
+            return None
+        else:
+            return json.loads(raw)
