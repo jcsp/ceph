@@ -78,11 +78,12 @@ public:
 static PyObject*
 ceph_send_command(PyObject *self, PyObject *args)
 {
+  char *handle = nullptr;
   char *cmd_json = nullptr;
   char *tag = nullptr;
   PyObject *completion = nullptr;
-  if (!PyArg_ParseTuple(args, "Oss:ceph_send_command",
-        &completion, &cmd_json, &tag)) {
+  if (!PyArg_ParseTuple(args, "sOss:ceph_send_command",
+        &handle, &completion, &cmd_json, &tag)) {
     return nullptr;
   }
 
@@ -110,8 +111,9 @@ ceph_send_command(PyObject *self, PyObject *args)
 static PyObject*
 ceph_state_get(PyObject *self, PyObject *args)
 {
+  char *handle = nullptr;
   char *what = NULL;
-  if (!PyArg_ParseTuple(args, "s:ceph_state_get", &what)) {
+  if (!PyArg_ParseTuple(args, "ss:ceph_state_get", &handle, &what)) {
     return NULL;
   }
 
@@ -122,8 +124,9 @@ ceph_state_get(PyObject *self, PyObject *args)
 static PyObject*
 ceph_get_server(PyObject *self, PyObject *args)
 {
+  char *handle = nullptr;
   char *hostname = NULL;
-  if (!PyArg_ParseTuple(args, "z:ceph_get_server", &hostname)) {
+  if (!PyArg_ParseTuple(args, "sz:ceph_get_server", &handle, &hostname)) {
     return NULL;
   }
 
@@ -137,8 +140,9 @@ ceph_get_server(PyObject *self, PyObject *args)
 static PyObject*
 ceph_config_get(PyObject *self, PyObject *args)
 {
+  char *handle = nullptr;
   char *what = nullptr;
-  if (!PyArg_ParseTuple(args, "s:ceph_state_get", &what)) {
+  if (!PyArg_ParseTuple(args, "ss:ceph_config_get", &handle, &what)) {
     return nullptr;
   }
 
@@ -154,9 +158,10 @@ ceph_config_get(PyObject *self, PyObject *args)
 static PyObject*
 ceph_config_set(PyObject *self, PyObject *args)
 {
+  char *handle = nullptr;
   char *key = nullptr;
   char *value = nullptr;
-  if (!PyArg_ParseTuple(args, "ss:ceph_state_get", &key, &value)) {
+  if (!PyArg_ParseTuple(args, "sss:ceph_config_set", &handle, &key, &value)) {
     return nullptr;
   }
 

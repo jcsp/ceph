@@ -14,6 +14,8 @@
 #ifndef DAEMON_SERVER_H_
 #define DAEMON_SERVER_H_
 
+#include "PyModules.h"
+
 #include <set>
 #include <string>
 
@@ -41,6 +43,7 @@ protected:
   Messenger *msgr;
   MonClient *monc;
   DaemonMetadataIndex &daemon_state;
+  PyModules &py_modules;
 
   AuthAuthorizeHandlerRegistry auth_registry;
 
@@ -53,7 +56,9 @@ public:
 
   entity_addr_t get_myaddr() const;
 
-  DaemonServer(MonClient *monc_, DaemonMetadataIndex &daemon_state_);
+  DaemonServer(MonClient *monc_,
+      DaemonMetadataIndex &daemon_state_,
+      PyModules &py_modules_);
   ~DaemonServer();
 
   bool ms_dispatch(Message *m);

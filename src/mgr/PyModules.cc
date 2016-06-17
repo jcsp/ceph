@@ -153,6 +153,30 @@ PyObject *PyModules::get_python(const std::string &what)
   }
 }
 
+//XXX courtesy of http://stackoverflow.com/questions/1418015/how-to-get-python-exception-text
+#include <boost/python.hpp>
+// decode a Python exception into a string
+std::string handle_pyerror()
+{
+    using namespace boost::python;
+    using namespace boost;
+
+    PyObject *exc,*val,*tb;
+    object formatted_list, formatted;
+    PyErr_Fetch(&exc,&val,&tb);
+    handle<> hexc(exc),hval(allow_null(val)),htb(allow_null(tb)); 
+    object traceback(import("traceback"));
+    if (!tb) {
+        object format_exception_only(traceback.attr("format_exception_only"));
+        formatted_list = format_exception_only(hexc,hval);
+    } else {
+        object format_exception(traceback.attr("format_exception"));
+        formatted_list = format_exception(hexc,hval,htb);
+    }
+    formatted = str("\n").join(formatted_list);
+    return extract<std::string>(formatted);
+}
+
 int PyModules::main(vector<const char *> args)
 {
   global_handle = this;
@@ -198,6 +222,25 @@ int PyModules::main(vector<const char *> args)
   int r = mod->load();
   if (r != 0) {
     derr << "Error loading python module" << dendl;
+    derr << handle_pyerror() << dendl;
+#if 0
+    PyObject *ptype, *pvalue, *ptraceback;
+    PyErr_Fetch(&ptype, &pvalue, &ptraceback);
+    if (ptype) {
+      if (pvalue) {
+        char *pStrErrorMessage = PyString_AsString(pvalue);
+
+XXX why is pvalue giving null when converted to string?
+
+        assert(pStrErrorMessage != nullptr);
+        derr << "Exception: " << pStrErrorMessage << dendl;
+        Py_DECREF(ptraceback);
+        Py_DECREF(pvalue);
+      }
+      Py_DECREF(ptype);
+    }
+#endif
+
     // FIXME: be tolerant of bad modules, log an error and continue
     // to load other, healthy modules.
     return r;
@@ -264,3 +307,17 @@ void PyModules::set_config(const std::string &key, const std::string &val)
   assert(set_cmd.r == 0);
 }
 
+std::vector<ModuleCommand> PyModules::get_commands()
+{
+  Mutex::Locker l(lock);
+
+  std::vector<ModuleCommand> result;
+  for (auto i : modules) {
+    auto mod_commands = i->get_commands();
+    for (auto j : mod_commands) {
+      result.push_back(j);
+    }
+  }
+
+  return result;
+}

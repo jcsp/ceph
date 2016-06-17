@@ -22,9 +22,12 @@
 #undef dout_prefix
 #define dout_prefix *_dout << "mgr.server " << __func__ << " "
 
-DaemonServer::DaemonServer(MonClient *monc_, DaemonMetadataIndex &daemon_state_)
+DaemonServer::DaemonServer(MonClient *monc_,
+  DaemonMetadataIndex &daemon_state_,
+  PyModules &py_modules_)
     : Dispatcher(g_ceph_context), msgr(nullptr), monc(monc_),
       daemon_state(daemon_state_),
+      py_modules(py_modules_),
       auth_registry(g_ceph_context,
                     g_conf->auth_supported.empty() ?
                       g_conf->auth_cluster_required :
@@ -207,7 +210,7 @@ bool DaemonServer::handle_command(MCommand *m)
 
   assert(lock.is_locked_by_me());
 
-  map<string, cmd_vartype> cmdmap;
+  cmdmap_t cmdmap;
 
   // TODO enforce some caps
   
@@ -221,12 +224,29 @@ bool DaemonServer::handle_command(MCommand *m)
     goto out;
   }
 
+  dout(4) << "decoded " << cmdmap.size() << dendl;
   cmd_getval(cct, cmdmap, "prefix", prefix);
+
+  dout(4) << "prefix=" << prefix << dendl;
 
   if (prefix == "get_command_descriptions") {
     int cmdnum = 0;
-    JSONFormatter *f = new JSONFormatter();
-    f->open_object_section("command_descriptions");
+
+    dout(10) << "reading commands from python modules" << dendl;
+    auto py_commands = py_modules.get_commands();
+
+    JSONFormatter f;
+    f.open_object_section("command_descriptions");
+    for (const auto &pyc : py_commands) {
+      ostringstream secname;
+      secname << "cmd" << setfill('0') << std::setw(3) << cmdnum;
+      dout(20) << "Dumping " << pyc.cmdstring << " (" << pyc.helpstring
+               << ")" << dendl;
+      dump_cmddesc_to_json(&f, secname.str(), pyc.cmdstring, pyc.helpstring,
+			   "mgr", pyc.perm, "cli");
+      cmdnum++;
+    }
+#if 0
     for (MgrCommand *cp = mgr_commands;
 	 cp < &mgr_commands[ARRAY_SIZE(mgr_commands)]; cp++) {
 
@@ -236,10 +256,35 @@ bool DaemonServer::handle_command(MCommand *m)
 			   cp->module, cp->perm, cp->availability);
       cmdnum++;
     }
-    f->close_section();	// command_descriptions
+#endif
+    f.close_section();	// command_descriptions
 
-    f->flush(ds);
-    delete f;
+    f.flush(ds);
+    goto out;
+  } else {
+    // Let's find you a handler!
+    MgrPyModule *handler = nullptr;
+    auto py_commands = py_modules.get_commands();
+    for (const auto &pyc : py_commands) {
+      auto pyc_prefix = cmddesc_get_prefix(pyc.cmdstring);
+      dout(1) << "pyc_prefix: '" << pyc_prefix << "'" << dendl;
+      if (pyc_prefix == prefix) {
+        handler = pyc.handler;
+        break;
+      }
+    }
+
+    if (handler == nullptr) {
+      ss << "No handler found for '" << prefix << "'";
+      r = -EINVAL;
+      goto out;
+    }
+
+    // FIXME: go run this python part in another thread, not inline
+    // with a ms_dispatch, so that the python part can block if it
+    // wants to.
+    dout(4) << "passing through " << cmdmap.size() << dendl;
+    r = handler->handle_command(cmdmap, &ds, &ss);
     goto out;
   }
 

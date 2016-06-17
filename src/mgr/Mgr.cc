@@ -41,7 +41,7 @@ Mgr::Mgr() :
   waiting_for_fs_map(NULL),
   py_modules(daemon_state, cluster_state, *monc, finisher),
   cluster_state(monc, nullptr),
-  server(monc, daemon_state)
+  server(monc, daemon_state, py_modules)
 {
   client_messenger = Messenger::create_client_messenger(g_ceph_context, "mds");
 
@@ -125,6 +125,8 @@ public:
 
 int Mgr::init()
 {
+  Mutex::Locker l(lock);
+
   // Initialize Messenger
   int r = client_messenger->bind(g_conf->public_addr);
   if (r < 0)
@@ -192,18 +194,16 @@ int Mgr::init()
   // Prepare to receive FSMap and request it
   dout(4) << "requesting FSMap..." << dendl;
   C_SaferCond cond;
-  lock.Lock();
   waiting_for_fs_map = &cond;
-  lock.Unlock();
   monc->sub_want("fsmap", 0, 0);
   monc->renew_subs();
 
   // Wait for FSMap
   dout(4) << "waiting for FSMap..." << dendl;
+  lock.Unlock();
   cond.wait();
   lock.Lock();
   waiting_for_fs_map = nullptr;
-  lock.Unlock();
   dout(4) << "Got FSMap." << dendl;
 
   finisher.start();
@@ -214,7 +214,7 @@ int Mgr::init()
 
 void Mgr::load_all_metadata()
 {
-  Mutex::Locker l(lock);
+  assert(lock.is_locked_by_me());
 
   JSONCommand mds_cmd;
   mds_cmd.run(monc, "{\"prefix\": \"mds metadata\"}");
@@ -233,6 +233,10 @@ void Mgr::load_all_metadata()
 
   for (auto &metadata_val : mds_cmd.json_result.get_array()) {
     json_spirit::mObject daemon_meta = metadata_val.get_obj();
+    if (daemon_meta.count("hostname") == 0) {
+      dout(1) << "Skipping incomplete metadata entry" << dendl;
+      continue;
+    }
 
     DaemonMetadataPtr dm = std::make_shared<DaemonMetadata>(daemon_state.types);
     dm->key = DaemonKey(CEPH_ENTITY_TYPE_MDS,
@@ -251,6 +255,10 @@ void Mgr::load_all_metadata()
 
   for (auto &metadata_val : mon_cmd.json_result.get_array()) {
     json_spirit::mObject daemon_meta = metadata_val.get_obj();
+    if (daemon_meta.count("hostname") == 0) {
+      dout(1) << "Skipping incomplete metadata entry" << dendl;
+      continue;
+    }
 
     DaemonMetadataPtr dm = std::make_shared<DaemonMetadata>(daemon_state.types);
     dm->key = DaemonKey(CEPH_ENTITY_TYPE_MON,
@@ -269,6 +277,10 @@ void Mgr::load_all_metadata()
 
   for (auto &osd_metadata_val : osd_cmd.json_result.get_array()) {
     json_spirit::mObject osd_metadata = osd_metadata_val.get_obj();
+    if (osd_metadata.count("hostname") == 0) {
+      dout(1) << "Skipping incomplete metadata entry" << dendl;
+      continue;
+    }
     dout(4) << osd_metadata.at("hostname").get_str() << dendl;
 
     DaemonMetadataPtr dm = std::make_shared<DaemonMetadata>(daemon_state.types);
@@ -291,6 +303,8 @@ const std::string config_prefix = "mgr.";
 
 void Mgr::load_config()
 {
+  assert(lock.is_locked_by_me());
+
   dout(10) << "listing keys" << dendl;
   JSONCommand cmd;
   cmd.run(monc, "{\"prefix\": \"config-key list\"}");
@@ -342,6 +356,8 @@ void Mgr::shutdown()
 
 void Mgr::handle_osd_map()
 {
+  assert(lock.is_locked_by_me());
+
   std::set<std::string> names_exist;
 
   /**
@@ -441,6 +457,8 @@ bool Mgr::ms_dispatch(Message *m)
 
 void Mgr::handle_fs_map(MFSMap* m)
 {
+  assert(lock.is_locked_by_me());
+
   const FSMap &new_fsmap = m->get_fsmap();
 
   if (waiting_for_fs_map) {

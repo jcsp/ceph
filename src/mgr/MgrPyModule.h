@@ -19,15 +19,37 @@
 // Python.h comes first because otherwise it clobbers ceph's assert
 #include "Python.h"
 
+#include "common/cmdparse.h"
+
+#include <vector>
 #include <string>
+
+
+class MgrPyModule;
+
+/**
+ * A Ceph CLI command description provided from a Python module
+ */
+class ModuleCommand {
+public:
+  std::string cmdstring;
+  std::string helpstring;
+  std::string perm;
+  MgrPyModule *handler;
+};
 
 class MgrPyModule
 {
 private:
   const std::string module_name;
   PyObject *pModule;
-  PyObject *pServe;
-  PyObject *pNotify;
+  PyObject *pClass;
+  PyObject *pClassInstance;
+
+
+  std::vector<ModuleCommand> commands;
+
+  int load_commands();
 
 public:
   MgrPyModule(const std::string &module_name);
@@ -36,6 +58,16 @@ public:
   int load();
   int serve();
   void notify(const std::string &notify_type, const std::string &notify_id);
+
+  const std::vector<ModuleCommand> &get_commands() const
+  {
+    return commands;
+  }
+
+  int handle_command(
+    const cmdmap_t &cmdmap,
+    std::stringstream *ss,
+    std::stringstream *ds);
 };
 
 #endif

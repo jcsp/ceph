@@ -14,6 +14,8 @@
 #ifndef PY_MODULES_H_
 #define PY_MODULES_H_
 
+#include "MgrPyModule.h"
+
 #include "common/Finisher.h"
 #include "common/Mutex.h"
 
@@ -21,7 +23,9 @@
 #include "DaemonMetadata.h"
 #include "ClusterState.h"
 
-#include "MgrPyModule.h"
+
+
+
 
 class PyModules
 {
@@ -51,6 +55,9 @@ public:
   PyObject *list_servers_python();
 
   std::map<std::string, std::string> config_cache;
+
+  std::vector<ModuleCommand> get_commands();
+
 
   void insert_config(const std::map<std::string, std::string> &new_config)
   {
