@@ -556,7 +556,7 @@ if (WITH_MGR)
                  $<TARGET_OBJECTS:heap_profiler_objs>)
              set_target_properties(ceph-mgr PROPERTIES COMPILE_FLAGS "-I${PYTHON_INCLUDE_DIRS}")
   target_link_libraries(ceph-mgr mds osdc global
-      ${PYTHON_LIBRARIES} ${BLKID_LIBRARIES} ${CMAKE_DL_LIBS} ${TCMALLOC_LIBS})
+      -lboost_python ${PYTHON_LIBRARIES} ${BLKID_LIBRARIES} ${CMAKE_DL_LIBS} ${TCMALLOC_LIBS})
 endif (WITH_MGR)
 
 set(librados_config_srcs
