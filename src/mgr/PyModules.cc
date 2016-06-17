@@ -297,9 +297,15 @@ void PyModules::set_config(const std::string &key, const std::string &val)
 
   std::ostringstream cmd_json;
   Command set_cmd;
-  cmd_json << "{\"prefix\": \"config-key put\","
-              " \"key\": \"" << key << "\","
-              "\"val\": \"" << val << "\"}";
+
+  JSONFormatter jf;
+  jf.open_object_section("cmd");
+  jf.dump_string("prefix", "config-key put");
+  jf.dump_string("key", key);
+  jf.dump_string("val", val);
+  jf.close_section();
+  jf.flush(cmd_json);
+
   set_cmd.run(&monc, cmd_json.str());
   set_cmd.wait();
 
