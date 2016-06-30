@@ -212,7 +212,7 @@ class ApiIntrospector(object):
         """
         Output RsT for one API view
         """
-        name = view().metadata(None)['name']
+        name = view().get_view_name()
 
         if view.__doc__:
             view_help_text = view.__doc__
@@ -290,7 +290,7 @@ class ApiIntrospector(object):
 
                 row = [_pretty_url(self.prefix, url_pattern)]
 
-                view_name = view().metadata(None)['name']
+                view_name = view().get_view_name()
                 row.append(
                     u":ref:`{0} <{1}>`".format(view_name.replace(" ", unichr(0x00a0)), view.__name__)
                 )
