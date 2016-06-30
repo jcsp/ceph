@@ -382,8 +382,8 @@ class Command(NoArgsCommand):
                 try:
                     examples = json.load(open(EXAMPLES_FILE, 'r'))
                 except IOError:
-                    print >>sys.stderr, "Examples data '%s' not found, have you run test_rest_api?" % EXAMPLES_FILE
-                    return
+                    examples = {}
+                    print >>sys.stderr, "Examples data '%s' not found, no examples will be generated" % EXAMPLES_FILE
 
                 introspector.write_docs(examples)
             except:
