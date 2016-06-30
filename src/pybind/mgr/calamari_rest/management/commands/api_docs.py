@@ -1,3 +1,18 @@
+#
+# If Django is installed locally, run the following command from the top of
+# the ceph source tree:
+#
+#   PYTHONPATH=src/pybind/mgr \
+#   DJANGO_SETTINGS_MODULE=calamari_rest.settings \
+#   CALAMARI_CONFIG=src/pybind/mgr/calamari.conf \
+#       django-admin api_docs
+#
+# This will create resources.rst (the API docs), and rest.log (which will
+# probably just be empty).
+#
+# TODO: Add the above to a makefile, so the docs land somewhere sane.
+#
+
 from collections import defaultdict
 import json
 from optparse import make_option
