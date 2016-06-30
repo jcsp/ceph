@@ -197,7 +197,7 @@ class ApiIntrospector(object):
                             continue
                         view_to_url_patterns[view_cls].append(url_pattern)
 
-        self.prefix = _find_prefix("calamari_web.urls", url_module)
+        self.prefix = _find_prefix("calamari_rest.urls", url_module)
         parse_urls(importlib.import_module(url_module).urlpatterns)
 
         self.view_to_url_patterns = sorted(view_to_url_patterns.items(), cmp=lambda x, y: cmp(x[0].__name__, y[0].__name__))
