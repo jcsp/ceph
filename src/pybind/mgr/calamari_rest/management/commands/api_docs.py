@@ -372,6 +372,7 @@ class Command(NoArgsCommand):
     def handle_noargs(self, list_urls, **options):
         introspector = ApiIntrospector("calamari_rest.urls.v2")
         if list_urls:
+            # TODO: this just prints an empty array (not sure why)
             print json.dumps(introspector.get_url_list())
         else:
             try:
