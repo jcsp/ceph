@@ -32,7 +32,7 @@ old_as_view = rest_framework.viewsets.ViewSetMixin.as_view
 
 @classmethod
 def as_view(cls, actions=None, **initkwargs):
-    view = old_as_view.__func__(cls)
+    view = old_as_view.__func__(cls, actions, **initkwargs)
     view._actions = actions
     return view
 
