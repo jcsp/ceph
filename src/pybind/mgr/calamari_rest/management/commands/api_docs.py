@@ -12,8 +12,12 @@ from django.core.urlresolvers import RegexURLPattern, RegexURLResolver
 import sys
 import codecs
 
-from calamari_rest.serializers.v2 import ValidatingSerializer
+class ceph_state:
+    pass
 
+sys.modules["ceph_state"] = ceph_state
+
+from calamari_rest.serializers.v2 import ValidatingSerializer
 
 GENERATED_PREFIX = "."
 
