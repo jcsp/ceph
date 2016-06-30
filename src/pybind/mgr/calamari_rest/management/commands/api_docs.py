@@ -17,6 +17,9 @@ class ceph_state:
 
 sys.modules["ceph_state"] = ceph_state
 
+# Needed to avoid weird import loops
+from rest import global_instance
+
 from calamari_rest.serializers.v2 import ValidatingSerializer
 
 GENERATED_PREFIX = "."
