@@ -265,7 +265,7 @@ class ApiIntrospector(object):
                     field_help_text = ""
                 field_table.append(
                     [field_name,
-                     field.type_label,
+                     field.__class__.__name__,
                      str(field.read_only),
                      create,
                      modify,
