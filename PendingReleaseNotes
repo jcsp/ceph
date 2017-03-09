@@ -16,6 +16,9 @@
   object_list_begin (C++) API is only usable on clusters with the
   SORTBITWISE flag enabled (Jewel and later).  (Note that this flag is
   required to be set before upgrading beyond Jewel.)
+* CephFS directory fragmentation (large directory support) is enabled
+  by default on new filesystems.  To enable it on existing filesystems
+  use "ceph fs set <fs_name> allow_dirfrags".
 
 12.0.0
 ------
