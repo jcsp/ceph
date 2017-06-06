@@ -32,7 +32,7 @@ from types import OsdMap, NotFound, Config, FsMap, MonMap, \
     PgSummary, Health, MonStatus
 
 import rados
-from rbd_ls import RbdLs
+from rbd_ls import RbdLs, RbdPoolLs
 from cephfs_clients import CephFSClients
 
 
@@ -78,6 +78,10 @@ class Module(MgrModule):
         # Stateful instances of RbdLs, hold cached results.  Key to dict
         # is pool name.
         self.rbd_ls = {}
+
+        # Stateful instance of RbdPoolLs, hold cached list of RBD
+        # pools
+        self.rbd_pool_ls = RbdPoolLs(self)
 
         # Stateful instances of CephFSClients, hold cached results.  Key to
         # dict is FSCID
@@ -412,6 +416,20 @@ class Module(MgrModule):
                 """
                 Data consumed by the base.html template
                 """
+                osd_map = global_instance().get_sync_object(OsdMap).data
+                status, data = global_instance().rbd_pool_ls.get()
+                if data is None:
+                    log.warning("Failed to get RBD pool list")
+                    data = []
+
+                rbd_pools = sorted([
+                    {
+                        "name": name,
+                        "url": "/rbd/{0}/".format(name)
+                    }
+                    for name in data
+                ], key=lambda k: k['name'])
+
                 fsmap = global_instance().get_sync_object(FsMap)
                 filesystems = [
                     {
@@ -424,6 +442,7 @@ class Module(MgrModule):
 
                 return {
                     'health_status': self._health_data()['status'],
+                    'rbd_pools': rbd_pools,
                     'filesystems': filesystems
                 }
 
