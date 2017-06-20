@@ -15,5 +15,7 @@ tasks:
 - install:
 - ceph:
     log-whitelist:
-    - objects unfound and apparently lost
+      - objects unfound and apparently lost
+      - HEALTH_WARN OSD_
+      - HEALTH_WARN PG_
 - ec_lost_unfound:
