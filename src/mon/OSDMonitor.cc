@@ -1086,11 +1086,6 @@ void OSDMonitor::_check_health(
   health_check_map_t next;
   int num_osds = osdmap.get_num_osds();
 
-  // NO_OSDS
-  if (num_osds == 0) {
-    next.add("NO_OSDS", HEALTH_ERR, "no osds");
-  }
-
   // OSD_DOWN
   // OSD_$subtree_DOWN
   // OSD_ORPHAN
@@ -1441,7 +1436,6 @@ void OSDMonitor::_check_health(
     }
   }
 
-out:
   encode_health(next, t);
 }
 
