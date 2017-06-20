@@ -83,7 +83,8 @@ void MgrMonitor::encode_pending(MonitorDBStore::TransactionRef t)
   put_last_committed(t, pending_map.epoch);
 
   health_check_map_t next;
-  if (!pending_map.available) {
+  if (!pending_map.available &&
+      pending_map.get_epoch() >= 3) {
     health_status_t level = HEALTH_WARN;
     utime_t now = ceph_clock_now();
     if (first_seen_inactive != utime_t() &&
@@ -419,6 +420,18 @@ void MgrMonitor::tick()
   } else if (pending_map.active_gid == 0) {
     if (promote_standby()) {
       dout(4) << "Promoted standby " << pending_map.active_gid << dendl;
+      propose = true;
+    }
+  }
+
+  // epoch 1 is empty, epoch 2 is 'starting', and (if all goes well) epoch 3
+  // if the first epoch we can have an active mgr.
+  if (map.get_epoch() < 3) {
+    utime_t cutoff = ceph_clock_now();
+    cutoff -= g_conf->mon_mgr_mkfs_grace;
+    if (mon->monmap->created < cutoff) {
+      dout(10) << " exceeded mon_mgr_mkfs_grace " << g_conf->mon_mgr_mkfs_grace
+	       << " seconds" << dendl;
       propose = true;
     }
   }

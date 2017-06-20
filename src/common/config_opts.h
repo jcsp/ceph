@@ -340,6 +340,7 @@ OPTION(mon_max_osd, OPT_INT, 10000)
 OPTION(mon_probe_timeout, OPT_DOUBLE, 2.0)
 OPTION(mon_client_bytes, OPT_U64, 100ul << 20)  // client msg data allowed in memory (in bytes)
 OPTION(mon_mgr_proxy_client_bytes_ratio, OPT_FLOAT, .3) // ratio of mon_client_bytes that can be consumed by proxied mgr commands before we error out to client
+OPTION(mon_mgr_mkfs_grace, OPT_INT, 1800)   // time before we complain about MGR_DOWN
 OPTION(mon_log_max_summary, OPT_U64, 50)
 OPTION(mon_daemon_bytes, OPT_U64, 400ul << 20)  // mds, osd message memory cap (in bytes)
 OPTION(mon_max_log_entries_per_event, OPT_INT, 4096)
