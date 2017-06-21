@@ -1124,6 +1124,23 @@ def run_daemon(ctx, config, type_):
                 continue
             _, _, id_ = teuthology.split_role(role)
 
+            if type_ == 'osd':
+                datadir='/var/lib/ceph/osd/ceph-' + id_
+                osd_uuid = teuthology.get_file(
+                    remote=remote,
+                    path=datadir + '/fsid',
+                    sudo=True,
+                ).strip()
+                remote.run(
+                    args=[
+                        'sudo',
+                        'ceph',
+                        'osd',
+                        'new',
+                        osd_uuid,
+                        id_,
+                    ]
+                )
             run_cmd = [
                 'sudo',
                 'adjust-ulimits',
