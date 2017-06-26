@@ -321,6 +321,16 @@ ceph_get_version(PyObject *self, PyObject *args)
 }
 
 static PyObject *
+ceph_mons_available(PyObject *self, PyObject *args)
+{
+  if (global_handle->mons_available()) {
+    Py_RETURN_TRUE;
+  } else {
+    Py_RETURN_FALSE;
+  }
+}
+
+static PyObject *
 ceph_get_context(PyObject *self, PyObject *args)
 {
   return global_handle->get_context();
@@ -373,6 +383,8 @@ PyMethodDef CephStateMethods[] = {
      "Get the ceph version of this process"},
     {"get_context", ceph_get_context, METH_NOARGS,
       "Get a CephContext* in a python capsule"},
+    {"mons_available", ceph_mons_available, METH_NOARGS,
+      "Return true if mons appear to be available"},
     {NULL, NULL, 0, NULL}
 };
 
