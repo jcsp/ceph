@@ -1,8 +1,9 @@
 
-import ceph_state  #noqa
+import ceph_module  # noqa
 import ceph_osdmap  #noqa
 import ceph_osdmap_incremental  #noqa
 import ceph_crushmap  #noqa
+
 import json
 import logging
 import threading
@@ -133,20 +134,25 @@ class CRUSHMap(object):
         return { int(k): v for k, v in uglymap.get('weights', {}).iteritems() }
 
 
-class MgrModule(object):
+class MgrModule(ceph_module.BaseMgrModule):
     COMMANDS = []
 
-    def __init__(self, handle):
-        self._handle = handle
-        self._logger = logging.getLogger(handle)
+    def __init__(self, module_name, py_modules_ptr, this_ptr):
+
+        import sys
+        sys.stderr.write("py_modules_ptr: {0}".format(py_modules_ptr))
+
+        super(MgrModule, self).__init__(py_modules_ptr, this_ptr)
+        self._logger = logging.getLogger(module_name)
 
         # Don't filter any logs at the python level, leave it to C++
         self._logger.setLevel(logging.DEBUG)
 
         # FIXME: we should learn the log level from C++ land, and then
-        # avoid calling ceph_state.log when we know a message is of
+        # avoid calling the C++ level log when we know a message is of
         # an insufficient level to be ultimately output
 
+        module_inst = self
         class CPlusPlusHandler(logging.Handler):
             def emit(self, record):
                 if record.levelno <= logging.DEBUG:
@@ -158,11 +164,11 @@ class MgrModule(object):
                 else:
                     ceph_level = 0
 
-                ceph_state.log(handle, ceph_level, self.format(record))
+                module_inst._ceph_log(ceph_level, self.format(record))
 
         self._logger.addHandler(CPlusPlusHandler())
 
-        self._version = ceph_state.get_version()
+        self._version = self._ceph_get_version()
 
         self._perf_schema_cache = None
 
@@ -184,6 +190,12 @@ class MgrModule(object):
     @property
     def version(self):
         return self._version
+
+    def get_context(self):
+        """
+        :return: a Python capsule containing a C++ CephContext pointer
+        """
+        return self._ceph_get_context()
 
     def notify(self, notify_type, notify_id):
         """
@@ -216,7 +228,7 @@ class MgrModule(object):
         """
         Called by the plugin to load some cluster state from ceph-mgr
         """
-        return ceph_state.get(self._handle, data_name)
+        return self._ceph_get(data_name)
 
     def get_server(self, hostname):
         """
@@ -225,7 +237,7 @@ class MgrModule(object):
 
         :param hostname: a hostame
         """
-        return ceph_state.get_server(self._handle, hostname)
+        return self._ceph_get_server(hostname)
 
     def get_perf_schema(self, svc_type, svc_name):
         """
@@ -237,7 +249,7 @@ class MgrModule(object):
         :param svc_name:
         :return: list of dicts describing the counters requested
         """
-        return ceph_state.get_perf_schema(self._handle, svc_type, svc_name)
+        return self._ceph_get_perf_schema(svc_type, svc_name)
 
     def get_counter(self, svc_type, svc_name, path):
         """
@@ -249,14 +261,14 @@ class MgrModule(object):
         :param path:
         :return: A list of two-element lists containing time and value
         """
-        return ceph_state.get_counter(self._handle, svc_type, svc_name, path)
+        return self._ceph_get_counter(svc_type, svc_name, path)
 
     def list_servers(self):
         """
         Like ``get_server``, but instead of returning information
         about just one node, return all the nodes in an array.
         """
-        return ceph_state.get_server(self._handle, None)
+        return self._ceph_get_server(None)
 
     def get_metadata(self, svc_type, svc_id):
         """
@@ -266,7 +278,7 @@ class MgrModule(object):
         :param svc_id: string
         :return: dict
         """
-        return ceph_state.get_metadata(self._handle, svc_type, svc_id)
+        return self._ceph_get_metadata(svc_type, svc_id)
 
     def get_daemon_status(self, svc_type, svc_id):
         """
@@ -276,14 +288,14 @@ class MgrModule(object):
         :param svc_id: string
         :return: dict
         """
-        return ceph_state.get_daemon_status(self._handle, svc_type, svc_id)
+        return self._ceph_get_daemon_status(svc_type, svc_id)
 
     def send_command(self, *args, **kwargs):
         """
         Called by the plugin to send a command to the mon
         cluster.
         """
-        ceph_state.send_command(self._handle, *args, **kwargs)
+        self._ceph_send_command(*args, **kwargs)
 
     def set_health_checks(self, checks):
         """
@@ -307,7 +319,7 @@ class MgrModule(object):
 
         :param list: dict of health check dicts
         """
-        ceph_state.set_health_checks(self._handle, checks)
+        self._ceph_set_health_checks(checks)
 
     def handle_command(self, cmd):
         """
@@ -333,7 +345,7 @@ class MgrModule(object):
 
         :return: str
         """
-        return ceph_state.get_mgr_id()
+        return self._ceph_get_mgr_id()
 
     def get_config(self, key, default=None):
         """
@@ -342,7 +354,7 @@ class MgrModule(object):
         :param key: str
         :return: str
         """
-        r = ceph_state.get_config(self._handle, key)
+        r = self._ceph_get_config(key)
         if r is None:
             return default
         else:
@@ -355,7 +367,7 @@ class MgrModule(object):
         :param key_prefix: str
         :return: str
         """
-        return ceph_state.get_config_prefix(self._handle, key_prefix)
+        return self._ceph_get_config_prefix(key_prefix)
 
     def get_localized_config(self, key, default=None):
         """
@@ -379,7 +391,7 @@ class MgrModule(object):
         :param key: str
         :param val: str
         """
-        ceph_state.set_config(self._handle, key, val)
+        self._ceph_set_config(key, val)
 
     def set_localized_config(self, key, val):
         """
@@ -388,7 +400,7 @@ class MgrModule(object):
         :param default: str
         :return: str
         """
-        return self.set_config(self.get_mgr_id() + '/' + key, val)
+        return self._ceph_set_config(self.get_mgr_id() + '/' + key, val)
 
     def set_config_json(self, key, val):
         """
@@ -397,7 +409,7 @@ class MgrModule(object):
         :param key: str
         :param val: json-serializable object
         """
-        self.set_config(key, json.dumps(val))
+        self._ceph_set_config(key, json.dumps(val))
 
     def get_config_json(self, key):
         """
