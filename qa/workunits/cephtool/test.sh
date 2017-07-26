@@ -163,6 +163,9 @@ function ceph_watch_start()
 
     if [ -n "$1" ]; then
 	whatch_opt=--watch-$1
+	if [ -n "$2" ]; then
+	    whatch_opt+=" --watch-channel $2"
+	fi
     fi
 
     CEPH_WATCH_FILE=${TEMP_DIR}/CEPH_WATCH_$$
@@ -264,6 +267,7 @@ function test_tiering_agent()
   local slow=slow_eviction
   local fast=fast_eviction
   ceph osd pool create $slow  1 1
+  ceph osd pool application enable $slow rados
   ceph osd pool create $fast  1 1
   ceph osd tier add $slow $fast
   ceph osd tier cache-mode $fast writeback
@@ -306,7 +310,9 @@ function test_tiering_1()
 {
   # tiering
   ceph osd pool create slow 2
+  ceph osd pool application enable slow rados
   ceph osd pool create slow2 2
+  ceph osd pool application enable slow2 rados
   ceph osd pool create cache 2
   ceph osd pool create cache2 2
   ceph osd tier add slow cache
@@ -392,6 +398,7 @@ function test_tiering_2()
 {
   # make sure we can't clobber snapshot state
   ceph osd pool create snap_base 2
+  ceph osd pool application enable snap_base rados
   ceph osd pool create snap_cache 2
   ceph osd pool mksnap snap_cache snapname
   expect_false ceph osd tier add snap_base snap_cache
@@ -403,6 +410,7 @@ function test_tiering_3()
 {
   # make sure we can't create snapshot on tier
   ceph osd pool create basex 2
+  ceph osd pool application enable basex rados
   ceph osd pool create cachex 2
   ceph osd tier add basex cachex
   expect_false ceph osd pool mksnap cache snapname
@@ -417,6 +425,7 @@ function test_tiering_4()
   ceph osd pool create eccache 2 2 erasure
   expect_false ceph osd set-require-min-compat-client bobtail
   ceph osd pool create repbase 2
+  ceph osd pool application enable repbase rados
   expect_false ceph osd tier add repbase eccache
   ceph osd pool delete repbase repbase --yes-i-really-really-mean-it
   ceph osd pool delete eccache eccache --yes-i-really-really-mean-it
@@ -426,6 +435,7 @@ function test_tiering_5()
 {
   # convenient add-cache command
   ceph osd pool create slow 2
+  ceph osd pool application enable slow rados
   ceph osd pool create cache3 2
   ceph osd tier add-cache slow cache3 1024000
   ceph osd dump | grep cache3 | grep bloom | grep 'false_positive_probability: 0.05' | grep 'target_bytes 1024000' | grep '1200s x4'
@@ -443,6 +453,7 @@ function test_tiering_6()
 {
   # check add-cache whether work
   ceph osd pool create datapool 2
+  ceph osd pool application enable datapool rados
   ceph osd pool create cachepool 2
   ceph osd tier add-cache datapool cachepool 1024000
   ceph osd tier cache-mode cachepool writeback
@@ -460,6 +471,7 @@ function test_tiering_7()
 {
   # protection against pool removal when used as tiers
   ceph osd pool create datapool 2
+  ceph osd pool application enable datapool rados
   ceph osd pool create cachepool 2
   ceph osd tier add-cache datapool cachepool 1024000
   ceph osd pool delete cachepool cachepool --yes-i-really-really-mean-it 2> $TMPFILE || true
@@ -477,6 +489,7 @@ function test_tiering_8()
   ## check health check
   ceph osd set notieragent
   ceph osd pool create datapool 2
+  ceph osd pool application enable datapool rados
   ceph osd pool create cache4 2
   ceph osd tier add-cache datapool cache4 1024000
   ceph osd tier cache-mode cache4 writeback
@@ -503,7 +516,9 @@ function test_tiering_9()
   # results in a 'pool foo is now (or already was) not a tier of bar'
   #
   ceph osd pool create basepoolA 2
+  ceph osd pool application enable basepoolA rados
   ceph osd pool create basepoolB 2
+  ceph osd pool application enable basepoolB rados
   poolA_id=$(ceph osd dump | grep 'pool.*basepoolA' | awk '{print $2;}')
   poolB_id=$(ceph osd dump | grep 'pool.*basepoolB' | awk '{print $2;}')
 
@@ -537,6 +552,7 @@ function test_auth()
   ceph auth add client.xx -i client.xx.keyring
   rm -f client.xx.keyring
   ceph auth list | grep client.xx
+  ceph auth ls | grep client.xx
   ceph auth get client.xx | grep caps | grep mon
   ceph auth get client.xx | grep caps | grep osd
   ceph auth get-key client.xx
@@ -575,9 +591,9 @@ function test_auth()
   check_response "auid = $auid"
   ceph --format json-pretty auth get client.TEST > $TMPFILE
   check_response '"auid": '$auid
-  ceph auth list > $TMPFILE
+  ceph auth ls > $TMPFILE
   check_response "auid: $auid"
-  ceph --format json-pretty auth list > $TMPFILE
+  ceph --format json-pretty auth ls > $TMPFILE
   check_response '"auid": '$auid
   ceph auth del client.TEST
 }
@@ -603,7 +619,7 @@ function test_auth_profiles()
   check_response "EACCES: access denied"
   ceph -n client.xx-profile-ro -k client.xx.keyring osd set noout >& $TMPFILE || true
   check_response "EACCES: access denied"
-  ceph -n client.xx-profile-ro -k client.xx.keyring auth list >& $TMPFILE || true
+  ceph -n client.xx-profile-ro -k client.xx.keyring auth ls >& $TMPFILE || true
   check_response "EACCES: access denied"
 
   # read-write is allowed for all read-write commands (except auth)
@@ -616,11 +632,11 @@ function test_auth_profiles()
   ceph -n client.xx-profile-rw -k client.xx.keyring osd set noout
   ceph -n client.xx-profile-rw -k client.xx.keyring osd unset noout
   # read-write gets access denied for auth commands
-  ceph -n client.xx-profile-rw -k client.xx.keyring auth list >& $TMPFILE || true
+  ceph -n client.xx-profile-rw -k client.xx.keyring auth ls >& $TMPFILE || true
   check_response "EACCES: access denied"
 
   # role-definer is allowed RWX 'auth' commands and read-only 'mon' commands
-  ceph -n client.xx-profile-rd -k client.xx.keyring auth list
+  ceph -n client.xx-profile-rd -k client.xx.keyring auth ls
   ceph -n client.xx-profile-rd -k client.xx.keyring auth export
   ceph -n client.xx-profile-rd -k client.xx.keyring auth add client.xx-profile-foo
   ceph -n client.xx-profile-rd -k client.xx.keyring status
@@ -795,7 +811,7 @@ function remove_all_fs()
 # in the cluster at all
 function mds_exists()
 {
-    ceph auth list | grep "^mds"
+    ceph auth ls | grep "^mds"
 }
 
 # some of the commands are just not idempotent.
@@ -1581,6 +1597,7 @@ function test_mon_osd()
 
   ceph osd ls
   ceph osd pool create data 10
+  ceph osd pool application enable data rados
   ceph osd lspools | grep data
   ceph osd map data foo | grep 'pool.*data.*object.*foo.*pg.*up.*acting'
   ceph osd map data foo namespace| grep 'pool.*data.*object.*namespace/foo.*pg.*up.*acting'
@@ -1640,6 +1657,7 @@ function test_mon_osd_pool()
   # osd pool
   #
   ceph osd pool create data 10
+  ceph osd pool application enable data rados
   ceph osd pool mksnap data datasnap
   rados -p data lssnap | grep datasnap
   ceph osd pool rmsnap data datasnap
@@ -1647,6 +1665,7 @@ function test_mon_osd_pool()
   ceph osd pool delete data data --yes-i-really-really-mean-it
 
   ceph osd pool create data2 10
+  ceph osd pool application enable data2 rados
   ceph osd pool rename data2 data3
   ceph osd lspools | grep data3
   ceph osd pool delete data3 data3 --yes-i-really-really-mean-it
@@ -1655,10 +1674,12 @@ function test_mon_osd_pool()
   ceph osd pool create replicated 12 12 replicated
   ceph osd pool create replicated 12 12 # default is replicated
   ceph osd pool create replicated 12    # default is replicated, pgp_num = pg_num
+  ceph osd pool application enable replicated rados
   # should fail because the type is not the same
   expect_false ceph osd pool create replicated 12 12 erasure
   ceph osd lspools | grep replicated
   ceph osd pool create ec_test 1 1 erasure
+  ceph osd pool application enable ec_test rados
   set +e
   ceph osd metadata | grep osd_objectstore_type | grep -qc bluestore
   if [ $? -eq 0 ]; then
@@ -1681,6 +1702,7 @@ function test_mon_osd_pool_quota()
 
   # create tmp pool
   ceph osd pool create tmp-quota-pool 36
+  ceph osd pool application enable tmp-quota-pool rados
   #
   # set erroneous quotas
   #
@@ -1857,6 +1879,7 @@ function test_mon_osd_pool_set()
 {
   TEST_POOL_GETSET=pool_getset
   ceph osd pool create $TEST_POOL_GETSET 1
+  ceph osd pool application enable $TEST_POOL_GETSET rados
   wait_for_clean
   ceph osd pool get $TEST_POOL_GETSET all
 
@@ -1871,6 +1894,7 @@ function test_mon_osd_pool_set()
   ceph osd pool set $TEST_POOL_GETSET size $old_size
 
   ceph osd pool create pool_erasure 1 1 erasure
+  ceph osd pool application enable pool_erasure rados
   wait_for_clean
   set +e
   ceph osd pool set pool_erasure size 4444 2>$TMPFILE
@@ -1942,12 +1966,12 @@ function test_mon_osd_pool_set()
   ceph osd pool set $TEST_POOL_GETSET pgp_num 10
 
   old_pgs=$(ceph osd pool get $TEST_POOL_GETSET pg_num | sed -e 's/pg_num: //')
-  new_pgs=$(($old_pgs+$(ceph osd stat | grep osdmap | awk '{print $3}')*32))
+  new_pgs=$(($old_pgs + $(ceph osd stat --format json | jq '.num_osds') * 32))
   ceph osd pool set $TEST_POOL_GETSET pg_num $new_pgs
   ceph osd pool set $TEST_POOL_GETSET pgp_num $new_pgs
   wait_for_clean
   old_pgs=$(ceph osd pool get $TEST_POOL_GETSET pg_num | sed -e 's/pg_num: //')
-  new_pgs=$(($old_pgs+$(ceph osd stat | grep osdmap | awk '{print $3}')*32+1))
+  new_pgs=$(($old_pgs + $(ceph osd stat --format json | jq '.num_osds') * 32 + 1))
   expect_false ceph osd pool set $TEST_POOL_GETSET pg_num $new_pgs
 
   ceph osd pool set $TEST_POOL_GETSET nosizechange 1
@@ -1963,11 +1987,6 @@ function test_mon_osd_pool_set()
   
   expect_false ceph osd pool set $TEST_POOL_GETSET hashpspool 1
   ceph osd pool set $TEST_POOL_GETSET hashpspool 1 --yes-i-really-mean-it
-
-  ceph osd pool set $TEST_POOL_GETSET nodelete 1
-  expect_false ceph osd pool delete $TEST_POOL_GETSET $TEST_POOL_GETSET --yes-i-really-really-mean-it
-  ceph osd pool set $TEST_POOL_GETSET nodelete 0
-  ceph osd pool delete $TEST_POOL_GETSET $TEST_POOL_GETSET --yes-i-really-really-mean-it
 
   ceph osd pool get rbd crush_rule | grep 'crush_rule: '
 
@@ -2004,6 +2023,12 @@ function test_mon_osd_pool_set()
       ceph osd pool set $TEST_POOL_GETSET $size 0
       ceph osd pool get $TEST_POOL_GETSET $size | expect_false grep '.'
   done
+
+  ceph osd pool set $TEST_POOL_GETSET nodelete 1
+  expect_false ceph osd pool delete $TEST_POOL_GETSET $TEST_POOL_GETSET --yes-i-really-really-mean-it
+  ceph osd pool set $TEST_POOL_GETSET nodelete 0
+  ceph osd pool delete $TEST_POOL_GETSET $TEST_POOL_GETSET --yes-i-really-really-mean-it
+
 }
 
 function test_mon_osd_tiered_pool_set()
@@ -2058,6 +2083,7 @@ function test_mon_osd_tiered_pool_set()
 
   # this is not a tier pool
   ceph osd pool create fake-tier 2
+  ceph osd pool application enable fake-tier rados
   wait_for_clean
 
   expect_false ceph osd pool set fake-tier hit_set_type explicit_hash
@@ -2246,11 +2272,11 @@ function test_mon_tell()
 
   sleep 1
 
-  ceph_watch_start debug
+  ceph_watch_start debug audit
   ceph tell mon.a version
   ceph_watch_wait 'mon.a \[DBG\] from.*cmd=\[{"prefix": "version"}\]: dispatch'
 
-  ceph_watch_start debug
+  ceph_watch_start debug audit
   ceph tell mon.b version
   ceph_watch_wait 'mon.b \[DBG\] from.*cmd=\[{"prefix": "version"}\]: dispatch'
 }
@@ -2295,6 +2321,7 @@ function test_mon_cephdf_commands()
   # RAW USED The near raw used per pool in raw total
 
   ceph osd pool create cephdf_for_test 32 32 replicated
+  ceph osd pool application enable cephdf_for_test rados
   ceph osd pool set cephdf_for_test size 2
 
   dd if=/dev/zero of=./cephdf_for_test bs=4k count=1
@@ -2316,6 +2343,42 @@ function test_mon_cephdf_commands()
   rm ./cephdf_for_test
 
   expect_false test $cal_raw_used_size != $raw_used_size
+}
+
+function test_mon_pool_application()
+{
+  ceph osd pool create app_for_test 10
+
+  ceph osd pool application enable app_for_test rbd
+  expect_false ceph osd pool application enable app_for_test rgw
+  ceph osd pool application enable app_for_test rgw --yes-i-really-mean-it
+  ceph osd pool ls detail | grep "application rbd,rgw"
+  ceph osd pool ls detail --format=json | grep '"application_metadata":{"rbd":{},"rgw":{}}'
+
+  expect_false ceph osd pool application set app_for_test cephfs key value
+  ceph osd pool application set app_for_test rbd key1 value1
+  ceph osd pool application set app_for_test rbd key2 value2
+  ceph osd pool application set app_for_test rgw key1 value1
+
+  ceph osd pool ls detail --format=json | grep '"application_metadata":{"rbd":{"key1":"value1","key2":"value2"},"rgw":{"key1":"value1"}}'
+
+  ceph osd pool application rm app_for_test rgw key1
+  ceph osd pool ls detail --format=json | grep '"application_metadata":{"rbd":{"key1":"value1","key2":"value2"},"rgw":{}}'
+  ceph osd pool application rm app_for_test rbd key2
+  ceph osd pool ls detail --format=json | grep '"application_metadata":{"rbd":{"key1":"value1"},"rgw":{}}'
+  ceph osd pool application rm app_for_test rbd key1
+  ceph osd pool ls detail --format=json | grep '"application_metadata":{"rbd":{},"rgw":{}}'
+
+  expect_false ceph osd pool application disable app_for_test rgw
+  ceph osd pool application disable app_for_test rgw --yes-i-really-mean-it
+  ceph osd pool ls detail | grep "application rbd"
+  ceph osd pool ls detail --format=json | grep '"application_metadata":{"rbd":{}}'
+
+  ceph osd pool application disable app_for_test rgw --yes-i-really-mean-it
+  ceph osd pool ls detail | grep -v "application "
+  ceph osd pool ls detail --format=json | grep '"application_metadata":{}'
+
+  ceph osd pool rm app_for_test app_for_test --yes-i-really-really-mean-it
 }
 
 function test_mon_tell_help_command()

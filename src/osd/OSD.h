@@ -2301,6 +2301,8 @@ private:
     case MSG_OSD_REP_SCRUBMAP:
     case MSG_OSD_PG_UPDATE_LOG_MISSING:
     case MSG_OSD_PG_UPDATE_LOG_MISSING_REPLY:
+    case MSG_OSD_PG_RECOVERY_DELETE:
+    case MSG_OSD_PG_RECOVERY_DELETE_REPLY:
       return true;
     default:
       return false;
@@ -2398,6 +2400,8 @@ private:
 
   int get_num_op_shards();
   int get_num_op_threads();
+
+  float get_osd_recovery_sleep();
 
 public:
   static int peek_meta(ObjectStore *store, string& magic,

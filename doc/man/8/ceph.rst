@@ -143,11 +143,11 @@ Usage::
 
 	ceph auth import
 
-Subcommand ``list`` lists authentication state.
+Subcommand ``ls`` lists authentication state.
 
 Usage::
 
-	ceph auth list
+	ceph auth ls
 
 Subcommand ``print-key`` displays requested key.
 
@@ -199,7 +199,7 @@ Subcommand ``list`` lists configuration keys.
 
 Usage::
 
-	ceph config-key list
+	ceph config-key ls
 
 Subcommand ``dump`` dumps configuration keys and values.
 
@@ -625,12 +625,6 @@ Usage::
 
 	ceph osd crush rule dump {<name>}
 
-Subcommand ``list`` lists crush rules.
-
-Usage::
-
-	ceph osd crush rule list
-
 Subcommand ``ls`` lists crush rules.
 
 Usage::
@@ -969,7 +963,8 @@ Usage::
 	ceph osd reweight-by-utilization {<int[100-]>}
 	{--no-increasing}
 
-Subcommand ``rm`` removes osd(s) <id> [<id>...] in the cluster.
+Subcommand ``rm`` removes osd(s) <id> [<id>...] from the OSD map.
+
 
 Usage::
 

@@ -3013,8 +3013,10 @@ void Monitor::handle_command(MonOpRequestRef op)
 
   const MonCommand *leader_cmd;
   const auto& mgr_cmds = mgrmon()->get_command_descs();
-  const MonCommand *mgr_cmd = _get_moncommand(prefix, &mgr_cmds.at(0),
-					      mgr_cmds.size());
+  const MonCommand *mgr_cmd = nullptr;
+  if (!mgr_cmds.empty()) {
+    mgr_cmd = _get_moncommand(prefix, &mgr_cmds.at(0), mgr_cmds.size());
+  }
   leader_cmd = _get_moncommand(prefix,
                                // the boost underlying this isn't const for some reason
                                const_cast<MonCommand*>(leader_supported_mon_commands),
@@ -3261,6 +3263,14 @@ void Monitor::handle_command(MonOpRequestRef op)
     f->flush(rdata);
     r = 0;
     rs = "";
+  } else if (prefix == "config set") {
+    std::string key;
+    cmd_getval(cct, cmdmap, "key", key);
+    std::string val;
+    cmd_getval(cct, cmdmap, "value", val);
+    r = g_conf->set_val(key, val, true, &ss);
+    rs = ss.str();
+    goto out;
   } else if (prefix == "status" ||
 	     prefix == "health" ||
 	     prefix == "df") {

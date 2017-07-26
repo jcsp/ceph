@@ -148,12 +148,18 @@ bool DaemonServer::ms_verify_authorizer(Connection *con,
   s->inst.addr = con->get_peer_addr();
   AuthCapsInfo caps_info;
 
-  is_valid = handler->verify_authorizer(
-    cct, monc->rotating_secrets.get(),
-    authorizer_data,
-    authorizer_reply, s->entity_name,
-    s->global_id, caps_info,
-    session_key);
+  RotatingKeyRing *keys = monc->rotating_secrets.get();
+  if (keys) {
+    is_valid = handler->verify_authorizer(
+      cct, keys,
+      authorizer_data,
+      authorizer_reply, s->entity_name,
+      s->global_id, caps_info,
+      session_key);
+  } else {
+    dout(10) << __func__ << " no rotating_keys (yet), denied" << dendl;
+    is_valid = false;
+  }
 
   if (is_valid) {
     if (caps_info.allow_all) {
@@ -391,6 +397,12 @@ bool DaemonServer::handle_report(MMgrReport *m)
   assert(daemon != nullptr);
   auto &daemon_counters = daemon->perf_counters;
   daemon_counters.update(m);
+  // if there are any schema updates, notify the python modules
+  if (!m->declare_types.empty() || !m->undeclare_types.empty()) {
+    ostringstream oss;
+    oss << key.first << '.' << key.second;
+    py_modules.notify_all("perf_schema_update", oss.str());
+  }
 
   if (daemon->service_daemon) {
     utime_t now = ceph_clock_now();

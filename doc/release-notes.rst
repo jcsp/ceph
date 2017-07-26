@@ -49,6 +49,8 @@ Major Changes from Kraken
     - The *ceph-mgr* daemon includes a REST-based management API.  The
       API is still experimental and somewhat limited but will form the basis
       for API-based management of Ceph going forward.  FIXME DOCS
+    - *ceph-mgr* also includes a Prometheus exporter plugin, which can
+      provide Ceph perfcounters to Prometheus.  See ceph-mgr docs.
 
   * The overall *scalability* of the cluster has improved. We have
     successfully tested clusters with up to 10,000 OSDs.
@@ -67,7 +69,7 @@ Major Changes from Kraken
   * There is now a *backoff* mechanism that prevents OSDs from being
     overloaded by requests to objects or PGs that are not currently able to
     process IO.
-  * There is a *simplified OSD replacement process* that is more robust.  FIXME DOCS
+  * There is a `simplified OSD replacement process`_ that is more robust.
   * You can query the supported features and (apparent) releases of
     all connected daemons and clients with ``ceph features``. FIXME DOCS
   * You can configure the oldest Ceph client version you wish to allow to
@@ -216,6 +218,9 @@ Major Changes from Kraken
     - ``ceph config-key dump`` dumps config-key entries and their
       contents.  (The existing ``ceph config-key list`` only dumps the key
       names, not the values.)
+    - ``ceph config-key list`` is deprecated in favor of ``ceph config-key ls``.
+    - ``ceph auth list`` is deprecated in favor of ``ceph auth ls``.
+    - ``ceph osd crush rule list`` is deprecated in favor of ``ceph osd crush rule ls``.
     - ``ceph osd set-{full,nearfull,backfillfull}-ratio`` sets the
       cluster-wide ratio for various full thresholds (when the cluster
       refuses IO, when the cluster warns about being close to full,
@@ -238,6 +243,7 @@ Major Changes from Kraken
     - ``ceph tell <daemon> help`` will now return a usage summary.
 
 .. _Read more about EC overwrites: ../rados/operations/erasure-code/#erasure-coding-with-overwrites
+.. _simplified OSD replacement process: ../rados/operations/add-or-rm-osds/#replacing-an-osd
 
 Major Changes from Jewel
 ------------------------

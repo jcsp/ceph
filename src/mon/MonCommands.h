@@ -154,7 +154,9 @@ COMMAND("auth print-key name=entity,type=CephString", "display requested key", \
 	"auth", "rx", "cli,rest")
 COMMAND("auth print_key name=entity,type=CephString", "display requested key", \
 	"auth", "rx", "cli,rest")
-COMMAND("auth list", "list authentication state", "auth", "rx", "cli,rest")
+COMMAND_WITH_FLAG("auth list", "list authentication state", "auth", "rx", "cli,rest",
+		  FLAG(DEPRECATED))
+COMMAND("auth ls", "list authentication state", "auth", "rx", "cli,rest")
 COMMAND("auth import", "auth import: read keyring file from -i <file>", \
 	"auth", "rwx", "cli,rest")
 COMMAND("auth add " \
@@ -209,6 +211,10 @@ COMMAND_WITH_FLAG("injectargs " \
 	     "name=injected_args,type=CephString,n=N",			\
 	     "inject config arguments into monitor", "mon", "rw", "cli,rest",
 	     FLAG(NOFORWARD))
+COMMAND("config set " \
+	"name=key,type=CephString name=value,type=CephString",
+	"Set a configuration option at runtime (not persistent)",
+	"mon", "rw", "cli,rest")
 COMMAND("status", "show cluster status", "mon", "r", "cli,rest")
 COMMAND("health name=detail,type=CephChoices,strings=detail,req=false", \
 	"show cluster health", "mon", "r", "cli,rest")
@@ -492,7 +498,8 @@ COMMAND("osd lspools " \
 COMMAND("osd blacklist ls", "show blacklisted clients", "osd", "r", "cli,rest")
 COMMAND("osd blacklist clear", "clear all blacklisted clients", "osd", "rw",
         "cli,rest")
-COMMAND("osd crush rule list", "list crush rules", "osd", "r", "cli,rest")
+COMMAND_WITH_FLAG("osd crush rule list", "list crush rules", "osd", "r", "cli,rest",
+		  FLAG(DEPRECATED))
 COMMAND("osd crush rule ls", "list crush rules", "osd", "r", "cli,rest")
 COMMAND("osd crush rule dump " \
 	"name=name,type=CephString,goodchars=[A-Za-z0-9-_.],req=false", \
@@ -683,7 +690,7 @@ COMMAND("osd erasure-code-profile ls", \
 	"list all erasure code profiles", \
 	"osd", "r", "cli,rest")
 COMMAND("osd set " \
-	"name=key,type=CephChoices,strings=full|pause|noup|nodown|noout|noin|nobackfill|norebalance|norecover|noscrub|nodeep-scrub|notieragent|sortbitwise|require_jewel_osds|require_kraken_osds", \
+	"name=key,type=CephChoices,strings=full|pause|noup|nodown|noout|noin|nobackfill|norebalance|norecover|noscrub|nodeep-scrub|notieragent|sortbitwise|recovery_deletes|require_jewel_osds|require_kraken_osds", \
 	"set <key>", "osd", "rw", "cli,rest")
 COMMAND("osd unset " \
 	"name=key,type=CephChoices,strings=full|pause|noup|nodown|noout|noin|nobackfill|norebalance|norecover|noscrub|nodeep-scrub|notieragent", \
@@ -897,6 +904,31 @@ COMMAND("osd pool get-quota " \
         "name=pool,type=CephPoolname ",
         "obtain object or byte limits for pool",
         "osd", "r", "cli,rest")
+COMMAND("osd pool application enable " \
+        "name=pool,type=CephPoolname " \
+        "name=app,type=CephString,goodchars=[A-Za-z0-9-_.] " \
+	"name=force,type=CephChoices,strings=--yes-i-really-mean-it,req=false", \
+        "enable use of an application <app> [cephfs,rbd,rgw] on pool <poolname>",
+        "osd", "rw", "cli,rest")
+COMMAND("osd pool application disable " \
+        "name=pool,type=CephPoolname " \
+        "name=app,type=CephString " \
+	"name=force,type=CephChoices,strings=--yes-i-really-mean-it,req=false", \
+        "disables use of an application <app> on pool <poolname>",
+        "osd", "rw", "cli,rest")
+COMMAND("osd pool application set " \
+        "name=pool,type=CephPoolname " \
+        "name=app,type=CephString " \
+        "name=key,type=CephString,goodchars=[A-Za-z0-9-_.] " \
+        "name=value,type=CephString,goodchars=[A-Za-z0-9-_.=]",
+        "sets application <app> metadata key <key> to <value> on pool <poolname>",
+        "osd", "rw", "cli,rest")
+COMMAND("osd pool application rm " \
+        "name=pool,type=CephPoolname " \
+        "name=app,type=CephString " \
+        "name=key,type=CephString",
+        "removes application <app> metadata key <key> on pool <poolname>",
+        "osd", "rw", "cli,rest")
 COMMAND("osd utilization",
 	"get basic pg distribution stats",
 	"osd", "r", "cli,rest")
@@ -961,7 +993,9 @@ COMMAND("config-key rm " \
 COMMAND("config-key exists " \
 	"name=key,type=CephString", \
 	"check for <key>'s existence", "config-key", "r", "cli,rest")
-COMMAND("config-key list ", "list keys", "config-key", "r", "cli,rest")
+COMMAND_WITH_FLAG("config-key list ", "list keys", "config-key", "r", "cli,rest",
+		  FLAG(DEPRECATED))
+COMMAND("config-key ls ", "list keys", "config-key", "r", "cli,rest")
 COMMAND("config-key dump", "dump keys and values", "config-key", "r", "cli,rest")
 
 

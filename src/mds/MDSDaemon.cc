@@ -641,6 +641,10 @@ COMMAND("injectargs " \
 	"name=injected_args,type=CephString,n=N",
 	"inject configuration arguments into running MDS",
 	"mds", "*", "cli,rest")
+COMMAND("config set " \
+	"name=key,type=CephString name=value,type=CephString",
+	"Set a configuration option at runtime (not persistent)",
+	"mds", "*", "cli,rest")
 COMMAND("exit",
 	"Terminate this MDS",
 	"mds", "*", "cli,rest")
@@ -757,6 +761,12 @@ int MDSDaemon::_handle_command(
     for (vector<string>::iterator a = ++argsvec.begin(); a != argsvec.end(); ++a)
       args += " " + *a;
     r = cct->_conf->injectargs(args, &ss);
+  } else if (prefix == "config set") {
+    std::string key;
+    cmd_getval(cct, cmdmap, "key", key);
+    std::string val;
+    cmd_getval(cct, cmdmap, "value", val);
+    r = cct->_conf->set_val(key, val, true, &ss);
   } else if (prefix == "exit") {
     // We will send response before executing
     ss << "Exiting...";
@@ -1257,9 +1267,16 @@ bool MDSDaemon::ms_verify_authorizer(Connection *con, int peer_type,
   EntityName name;
   uint64_t global_id;
 
-  is_valid = authorize_handler->verify_authorizer(
-    cct, monc->rotating_secrets.get(),
-    authorizer_data, authorizer_reply, name, global_id, caps_info, session_key);
+  RotatingKeyRing *keys = monc->rotating_secrets.get();
+  if (keys) {
+    is_valid = authorize_handler->verify_authorizer(
+      cct, keys,
+      authorizer_data, authorizer_reply, name, global_id, caps_info,
+      session_key);
+  } else {
+    dout(10) << __func__ << " no rotating_keys (yet), denied" << dendl;
+    is_valid = false;
+  }
 
   if (is_valid) {
     entity_name_t n(con->get_peer_type(), global_id);

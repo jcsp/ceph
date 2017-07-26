@@ -187,6 +187,7 @@ CompatSet OSD::get_osd_initial_compat_set() {
   ceph_osd_feature_incompat.insert(CEPH_OSD_FEATURE_INCOMPAT_PGMETA);
   ceph_osd_feature_incompat.insert(CEPH_OSD_FEATURE_INCOMPAT_MISSING);
   ceph_osd_feature_incompat.insert(CEPH_OSD_FEATURE_INCOMPAT_FASTINFO);
+  ceph_osd_feature_incompat.insert(CEPH_OSD_FEATURE_INCOMPAT_RECOVERY_DELETES);
   return CompatSet(ceph_osd_feature_compat, ceph_osd_feature_ro_compat,
 		   ceph_osd_feature_incompat);
 }
@@ -2329,6 +2330,16 @@ int OSD::get_num_op_threads()
     return get_num_op_shards() * cct->_conf->osd_op_num_threads_per_shard_hdd;
   else
     return get_num_op_shards() * cct->_conf->osd_op_num_threads_per_shard_ssd;
+}
+
+float OSD::get_osd_recovery_sleep()
+{
+  if (cct->_conf->osd_recovery_sleep)
+    return cct->_conf->osd_recovery_sleep;
+  if (store_is_rotational)
+    return cct->_conf->osd_recovery_sleep_hdd;
+  else
+    return cct->_conf->osd_recovery_sleep_ssd;
 }
 
 int OSD::init()
@@ -4698,7 +4709,11 @@ void OSD::handle_osd_ping(MOSDPing *m)
   }
 
   OSDMapRef curmap = service.get_osdmap();
-  assert(curmap);
+  if (!curmap) {
+    heartbeat_lock.Unlock();
+    m->put();
+    return;
+  }
 
   switch (m->op) {
 
@@ -6222,6 +6237,10 @@ COMMAND("injectargs " \
 	"name=injected_args,type=CephString,n=N",
 	"inject configuration arguments into running OSD",
 	"osd", "rw", "cli,rest")
+COMMAND("config set " \
+	"name=key,type=CephString name=value,type=CephString",
+	"Set a configuration option at runtime (not persistent)",
+	"osd", "rw", "cli,rest")
 COMMAND("cluster_log " \
 	"name=level,type=CephChoices,strings=error,warning,info,debug " \
 	"name=message,type=CephString,n=N",
@@ -6334,6 +6353,15 @@ void OSD::do_command(Connection *con, ceph_tid_t tid, vector<string>& cmd, buffe
       args += " " + *a;
     osd_lock.Unlock();
     r = cct->_conf->injectargs(args, &ss);
+    osd_lock.Lock();
+  }
+  else if (prefix == "config set") {
+    std::string key;
+    std::string val;
+    cmd_getval(cct, cmdmap, "key", key);
+    cmd_getval(cct, cmdmap, "value", val);
+    osd_lock.Unlock();
+    r = cct->_conf->set_val(key, val, true, &ss);
     osd_lock.Lock();
   }
   else if (prefix == "cluster_log") {
@@ -6940,10 +6968,16 @@ bool OSD::ms_verify_authorizer(Connection *con, int peer_type,
   uint64_t global_id;
   uint64_t auid = CEPH_AUTH_UID_DEFAULT;
 
-  isvalid = authorize_handler->verify_authorizer(
-    cct, monc->rotating_secrets.get(),
-    authorizer_data, authorizer_reply, name, global_id, caps_info, session_key,
-    &auid);
+  RotatingKeyRing *keys = monc->rotating_secrets.get();
+  if (keys) {
+    isvalid = authorize_handler->verify_authorizer(
+      cct, keys,
+      authorizer_data, authorizer_reply, name, global_id, caps_info, session_key,
+      &auid);
+  } else {
+    dout(10) << __func__ << " no rotating_keys (yet), denied" << dendl;
+    isvalid = false;
+  }
 
   if (isvalid) {
     Session *s = static_cast<Session *>(con->get_priv());
@@ -9136,7 +9170,8 @@ void OSD::do_recovery(
    * recovery_requeue_callback event, which re-queues the recovery op using
    * queue_recovery_after_sleep.
    */
-  if (cct->_conf->osd_recovery_sleep > 0 && service.recovery_needs_sleep) {
+  float recovery_sleep = get_osd_recovery_sleep();
+  if (recovery_sleep > 0 && service.recovery_needs_sleep) {
     PGRef pgref(pg);
     auto recovery_requeue_callback = new FunctionContext([this, pgref, queued, reserved_pushes](int r) {
       dout(20) << "do_recovery wake up at "
@@ -9153,7 +9188,7 @@ void OSD::do_recovery(
     if (service.recovery_schedule_time < ceph_clock_now()) {
       service.recovery_schedule_time = ceph_clock_now();
     }
-    service.recovery_schedule_time += cct->_conf->osd_recovery_sleep;
+    service.recovery_schedule_time += recovery_sleep;
     service.recovery_sleep_timer.add_event_at(service.recovery_schedule_time,
 	                                      recovery_requeue_callback);
     dout(20) << "Recovery event scheduled at "
