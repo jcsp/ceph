@@ -685,7 +685,7 @@ class Module(MgrModule):
                            cur_pe.score, next_pe.score, next_misplaced)
 
             if next_misplaced > max_misplaced:
-                if cur_pe.score > 1.01 * pe.score:
+                if cur_pe.score < pe.score:
                     self.log.debug('Step misplaced %f > max %f, stopping',
                                    next_misplaced, max_misplaced)
                     break
