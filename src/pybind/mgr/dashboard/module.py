@@ -46,7 +46,7 @@ log = logging.getLogger("dashboard")
 LOG_BUFFER_SIZE = 30
 
 # cherrypy likes to sys.exit on error.  don't let it take us down too!
-def os_exit_noop():
+def os_exit_noop(*args, **kwargs):
     pass
 
 os._exit = os_exit_noop
@@ -184,6 +184,14 @@ class Module(MgrModule):
                     self.log_buffer.appendleft(notify_val)
         elif notify_type == "pg_summary":
             self.update_pool_stats()
+
+            #pg_summary = self.get("pg_summary")
+            pg_dump = self.get("pg_dump")
+            self.log.info("pg_stats_delta.num_write = {0}".format(pg_dump['pg_stats_delta']['stat_sum']['num_write']))
+            self.log.info("pg_stats_sum.num_write = {0}".format(pg_dump['pg_stats_sum']['stat_sum']['num_write']))
+
+            #self.log.info("pg_summary: {0}".format(json.dumps(pg_summary, indent=2)))
+            #self.log.info("pg_dump: {0}".format(json.dumps(pg_dump, indent=2)))
         else:
             pass
 
