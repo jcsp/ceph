@@ -20,7 +20,7 @@ default_max_misplaced = .05    # max ratio of pgs replaced at a time
 TIME_FORMAT = '%Y-%m-%d_%H:%M:%S'
 
 
-class MappingState:
+class MappingState(object):
     def __init__(self, osdmap, pg_dump, desc=''):
         self.desc = desc
         self.osdmap = osdmap
@@ -49,7 +49,7 @@ class MappingState:
             return float(misplaced) / float(num)
         return 0.0
 
-class Plan:
+class Plan(object):
     def __init__(self, name, ms):
         self.mode = 'unknown'
         self.name = name
@@ -95,7 +95,7 @@ class Plan:
         return '\n'.join(ls)
 
 
-class Eval:
+class Eval(object):
     root_ids = {}        # root name -> id
     pool_name = {}       # pool id -> pool name
     pool_id = {}         # pool name -> id
