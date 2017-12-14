@@ -42,9 +42,12 @@ class Module(MgrModule):
                 "desc": "Stop background workload if any is running",
                 "perm": "r"
             },
+            {
+                "cmd": "mgr self-test remote",
+                "desc": "Test inter-module calls",
+                "perm": "r"
+            },
             ]
-
-
 
     def __init__(self, *args, **kwargs):
         super(Module, self).__init__(*args, **kwargs)
@@ -73,6 +76,10 @@ class Module(MgrModule):
                         was_running)
             else:
                 return 0, '', 'No background workload was running'
+
+        elif command['prefix'] == 'mgr self-test remote':
+            self.remote("influx", "handle_command", {"prefix": "influx self-test"})
+            return 0, '', 'Successfully called'
 
         else:
             return (-errno.EINVAL, '',
