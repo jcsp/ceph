@@ -36,12 +36,12 @@ class StandbyPyModuleState
   mutable Mutex lock{"StandbyPyModuleState::lock"};
 
   MgrMap mgr_map;
-  PyModuleConfig config_cache;
 
   mutable Cond config_loaded;
 
 public:
-
+  PyModuleConfig config_cache; //getter
+  
   bool is_config_loaded = false;
 
   void set_mgr_map(const MgrMap &mgr_map_)
@@ -111,7 +111,7 @@ private:
 
   MonClient *monc;
 
-  StandbyPyModuleState state;
+  StandbyPyModuleState state; 
 
   void load_config();
   class LoadConfigThread : public Thread
@@ -140,7 +140,7 @@ public:
   int start_one(PyModuleRef py_module);
 
   void shutdown();
-
+  
   void handle_mgr_map(const MgrMap &mgr_map)
   {
     state.set_mgr_map(mgr_map);

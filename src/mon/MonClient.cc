@@ -354,8 +354,8 @@ void MonClient::handle_monmap(MMonMap *m)
   decode(monmap, p);
 
   ldout(cct, 10) << " got monmap " << monmap.epoch
-		 << ", mon." << cur_mon << " is now rank " << monmap.get_rank(cur_mon)
-		 << dendl;
+ 		 << ", mon." << cur_mon << " is now rank " << monmap.get_rank(cur_mon)
+ 		 << dendl;
   ldout(cct, 10) << "dump:\n";
   monmap.print(*_dout);
   *_dout << dendl;
@@ -484,7 +484,6 @@ int MonClient::authenticate(double timeout)
     ldout(cct, 5) << "already authenticated" << dendl;
     return 0;
   }
-
   _sub_want("monmap", monmap.get_epoch() ? monmap.get_epoch() + 1 : 0, 0);
   _sub_want("config", 0, 0);
   if (!_opened())
@@ -1327,4 +1326,12 @@ int MonConnection::authenticate(MAuthReply *m)
     con->send_message(ma);
   }
   return ret;
+}
+
+void MonClient::register_config_callback(MonClient::config_callback fn) {
+  cb = fn;
+}
+
+MonClient::config_callback MonClient::get_cb() {
+  return cb;
 }

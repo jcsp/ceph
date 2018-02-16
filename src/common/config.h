@@ -39,6 +39,7 @@ enum {
 
 extern const char *ceph_conf_level_name(int level);
 
+
 /** This class represents the current Ceph configuration.
  *
  * For Ceph daemons, this is the daemon configuration.  Log levels, caching
@@ -123,7 +124,7 @@ public:
   // Create a new md_config_t structure.
   md_config_t(bool is_daemon=false);
   ~md_config_t();
-
+  
   // Adds a new observer to this configuration. You can do this at any time,
   // but it will only receive notifications for the changes that happen after
   // you attach it, obviously.

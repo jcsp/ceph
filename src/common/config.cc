@@ -23,6 +23,7 @@
 #include "common/errno.h"
 #include "common/hostname.h"
 #include "common/dout.h"
+#include "mon/MonClient.h"
 
 /* Don't use standard Ceph logging in this file.
  * We can't use logging until it's initialized, and a lot of the necessary
@@ -265,8 +266,12 @@ void md_config_t::set_val_default(const string& name, const std::string& val)
 int md_config_t::set_mon_vals(CephContext *cct, const map<string,string>& kv)
 {
   Mutex::Locker l(lock);
+  MonClient *monclient = new MonClient(cct);
   ignored_mon_values.clear();
   for (auto& i : kv) {
+    if (!(monclient->get_cb()(i.first, i.second))) {
+      continue;
+    }
     const Option *o = find_option(i.first);
     if (!o) {
       ldout(cct,10) << __func__ << " " << i.first << " = " << i.second
@@ -1483,4 +1488,3 @@ void md_config_t::complain_about_parse_errors(CephContext *cct)
 {
   ::complain_about_parse_errors(cct, &parse_errors);
 }
-

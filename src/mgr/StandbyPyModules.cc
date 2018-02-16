@@ -36,6 +36,18 @@ StandbyPyModules::StandbyPyModules(MonClient *monc_, const MgrMap &mgr_map_,
     : monc(monc_), load_config_thread(monc, &state), clog(clog_)
 {
   state.set_mgr_map(mgr_map_);
+  monc->register_config_callback([this](const std::string &k, const std::string &v){
+      if (k.substr(0, 4) == "mgr/") {
+	const std::string global_key = PyModuleRegistry::config_prefix + k.substr(0, 4);
+	if (v != NULL) {
+	  state.config_cache[global_key] = v;
+	} else {
+	  state.config_cache.erase(global_key);
+	}
+	return true;
+      }
+      return false;
+    });
 }
 
 // FIXME: completely identical to ActivePyModules
