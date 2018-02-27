@@ -59,8 +59,20 @@ private:
    */
   std::set<std::string> probe_modules() const;
 
+  PyModuleConfig module_config;
+
 public:
   static std::string config_prefix;
+
+  void handle_config(const std::string &k, const std::string &v)
+  {
+    // FIXME locking
+    if (v.empty()) {
+      module_config[k] = v;
+    } else {
+      module_config.erase(k);
+    }
+  }
 
   /**
    * Get references to all modules (whether they have loaded and/or

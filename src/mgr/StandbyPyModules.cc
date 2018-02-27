@@ -31,36 +31,20 @@
 #define dout_prefix *_dout << "mgr " << __func__ << " "
 
 
-StandbyPyModules::StandbyPyModules(MonClient *monc_, const MgrMap &mgr_map_,
-    LogChannelRef clog_)
-    : monc(monc_), load_config_thread(monc, &state), clog(clog_)
+StandbyPyModules::StandbyPyModules(
+    MonClient *monc_, const MgrMap &mgr_map_,
+    PyModuleConfig &module_config, LogChannelRef clog_)
+    : monc(monc_),
+      state(module_config),
+      clog(clog_)
 {
   state.set_mgr_map(mgr_map_);
-  monc->register_config_callback([this](const std::string &k, const std::string &v){
-      if (k.substr(0, 4) == "mgr/") {
-	const std::string global_key = PyModuleRegistry::config_prefix + k.substr(0, 4);
-	if (v != NULL) {
-	  state.config_cache[global_key] = v;
-	} else {
-	  state.config_cache.erase(global_key);
-	}
-	return true;
-      }
-      return false;
-    });
 }
 
 // FIXME: completely identical to ActivePyModules
 void StandbyPyModules::shutdown()
 {
   Mutex::Locker locker(lock);
-
-  if (!state.is_config_loaded && load_config_thread.is_started()) {
-    // FIXME: handle cases where initial load races with shutdown
-    // this is actually not super rare because 
-    assert(0);
-    //load_config_thread.kill(SIGKILL);
-  }
 
   // Signal modules to drop out of serve() and/or tear down resources
   for (auto &i : modules) {
@@ -96,10 +80,6 @@ int StandbyPyModules::start_one(PyModuleRef py_module)
   modules[module_name].reset(new StandbyPyModule(
       state,
       py_module, clog));
-
-  if (modules.size() == 1) {
-    load_config_thread.create("LoadConfig");
-  }
 
   int r = modules[module_name]->load();
   if (r != 0) {
@@ -139,38 +119,6 @@ int StandbyPyModule::load()
     dout(1) << "Constructed class from module: " << get_name() << dendl;
     return 0;
   }
-}
-
-void *StandbyPyModules::LoadConfigThread::entry()
-{
-  dout(10) << "listing keys" << dendl;
-  JSONCommand cmd;
-  cmd.run(monc, "{\"prefix\": \"config-key ls\"}");
-  cmd.wait();
-  assert(cmd.r == 0);
-
-  std::map<std::string, std::string> loaded;
-  
-  for (auto &key_str : cmd.json_result.get_array()) {
-    std::string const key = key_str.get_str();
-    dout(20) << "saw key '" << key << "'" << dendl;
-
-    const std::string config_prefix = PyModuleRegistry::config_prefix;
-
-    if (key.substr(0, config_prefix.size()) == config_prefix) {
-      dout(20) << "fetching '" << key << "'" << dendl;
-      Command get_cmd;
-      std::ostringstream cmd_json;
-      cmd_json << "{\"prefix\": \"config-key get\", \"key\": \"" << key << "\"}";
-      get_cmd.run(monc, cmd_json.str());
-      get_cmd.wait();
-      assert(get_cmd.r == 0);
-      loaded[key] = get_cmd.outbl.to_str();
-    }
-  }
-  state->loaded_config(loaded);
-
-  return nullptr;
 }
 
 bool StandbyPyModule::get_config(const std::string &key,

@@ -116,7 +116,8 @@ void PyModuleRegistry::standby_start(MonClient *monc)
 
   dout(4) << "Starting modules in standby mode" << dendl;
 
-  standby_modules.reset(new StandbyPyModules(monc, mgr_map, clog));
+  standby_modules.reset(new StandbyPyModules(
+        monc, mgr_map, module_config, clog));
 
   std::set<std::string> failed_modules;
   for (const auto &i : modules) {
@@ -350,6 +351,16 @@ void PyModuleRegistry::get_health_checks(health_check_map_t *checks)
       }
       checks->add("MGR_MODULE_ERROR", HEALTH_ERR, ss.str());
     }
+  }
+}
+
+void PyModuleRegistry::handle_config(const std::string &k, const std::string &v)
+{
+  // FIXME locking
+  if (v.empty()) {
+    module_config[k] = v;
+  } else {
+    module_config.erase(k);
   }
 }
 

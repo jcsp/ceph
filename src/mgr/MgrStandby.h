@@ -29,6 +29,8 @@
 class MMgrMap;
 class Mgr;
 
+typedef std::map<std::string, std::string> PyModuleConfig;
+
 class MgrStandby : public Dispatcher,
 		   public md_config_obs_t {
 public:
