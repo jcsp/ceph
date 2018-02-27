@@ -602,7 +602,7 @@ void ConfigMonitor::load_config()
       osdmap.crush.get(),
       string(), // no device class
       &out);
-    g_conf->set_mon_vals(g_ceph_context, out);
+    g_conf->set_mon_vals(g_ceph_context, out, nullptr);
   }
 }
 

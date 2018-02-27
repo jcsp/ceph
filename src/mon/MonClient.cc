@@ -375,7 +375,7 @@ void MonClient::handle_monmap(MMonMap *m)
 void MonClient::handle_config(MConfig *m)
 {
   ldout(cct,10) << __func__ << " " << *m << dendl;
-  cct->_conf->set_mon_vals(cct, m->config);
+  cct->_conf->set_mon_vals(cct, m->config, config_cb);
   m->put();
   got_config = true;
   map_cond.Signal();
@@ -1328,10 +1328,11 @@ int MonConnection::authenticate(MAuthReply *m)
   return ret;
 }
 
-void MonClient::register_config_callback(MonClient::config_callback fn) {
-  cb = fn;
+void MonClient::register_config_callback(md_config_t::config_callback fn) {
+  assert(!config_cb);
+  config_cb = fn;
 }
 
-MonClient::config_callback MonClient::get_cb() {
-  return cb;
+md_config_t::config_callback MonClient::get_config_callback() {
+  return config_cb;
 }

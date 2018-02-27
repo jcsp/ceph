@@ -23,7 +23,6 @@
 #include "common/errno.h"
 #include "common/hostname.h"
 #include "common/dout.h"
-#include "mon/MonClient.h"
 
 /* Don't use standard Ceph logging in this file.
  * We can't use logging until it's initialized, and a lot of the necessary
@@ -263,14 +262,23 @@ void md_config_t::set_val_default(const string& name, const std::string& val)
   assert(r >= 0);
 }
 
-int md_config_t::set_mon_vals(CephContext *cct, const map<string,string>& kv)
+int md_config_t::set_mon_vals(CephContext *cct,
+    const map<string,string>& kv,
+    config_callback config_cb)
 {
   Mutex::Locker l(lock);
-  MonClient *monclient = new MonClient(cct);
   ignored_mon_values.clear();
+
+  if (!config_cb) {
+    ldout(cct, 4) << __func__ << " no callback set" << dendl;
+  }
+
   for (auto& i : kv) {
-    if (!(monclient->get_cb()(i.first, i.second))) {
+    if (config_cb && config_cb(i.first, i.second)) {
+      ldout(cct, 4) << __func__ << " callback consumed " << i.first << dendl;
       continue;
+    } else {
+      ldout(cct, 4) << __func__ << " callback ignored " << i.first << dendl;
     }
     const Option *o = find_option(i.first);
     if (!o) {

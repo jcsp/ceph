@@ -493,9 +493,8 @@ public:
     Mutex::Locker l(monc_lock);
     return std::forward<Callback>(cb)(monmap, std::forward<Args>(args)...);
   }
-  typedef std::function<bool(const std::string &k, const std::string &v)> config_callback;
-  void register_config_callback(config_callback fn);
-  config_callback get_cb();
+  void register_config_callback(md_config_t::config_callback fn);
+  md_config_t::config_callback get_config_callback();
 
 private:
   struct version_req_d {
@@ -507,7 +506,7 @@ private:
   map<ceph_tid_t, version_req_d*> version_requests;
   ceph_tid_t version_req_id;
   void handle_get_version_reply(MMonGetVersionReply* m);
-  static config_callback cb;
+  md_config_t::config_callback config_cb;
 };
 
 #endif
