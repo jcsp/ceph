@@ -82,6 +82,29 @@ class OSDMap(ceph_module.BasePyOSDMap):
     def dump(self):
         return self._dump()
 
+    def get_pool(self, pool_name):
+        # FIXME: efficient implementation
+        d = self._dump()
+        for p in d['pools']:
+            if p['pool_name'] == pool_name:
+                return p
+
+        return None
+
+    def get_pool_by_id(self, pool_id):
+        # FIXME: efficient implementation
+        d = self._dump()
+        for p in d['pools']:
+            if p['pool'] == pool_id:
+                return p
+
+        return None
+
+    def get_pools(self):
+        # FIXME: efficient implementation
+        d = self._dump()
+        return dict([(p['pool'], p) for p in d['pools']])
+
     def new_incremental(self):
         return self._new_incremental()
 
@@ -130,6 +153,7 @@ class OSDMapIncremental(ceph_module.BasePyOSDMapIncremental):
         """
         return self._set_crush_compat_weight_set_weights(weightmap)
 
+
 class CRUSHMap(ceph_module.BasePyCRUSH):
     ITEM_NONE = 0x7fffffff
     DEFAULT_CHOOSE_ARGS = '-1'
@@ -157,6 +181,60 @@ class CRUSHMap(ceph_module.BasePyCRUSH):
     @staticmethod
     def get_default_choose_args(dump):
         return dump.get('choose_args').get(CRUSHMap.DEFAULT_CHOOSE_ARGS, [])
+
+    def get_rule(self, rule_name):
+        # TODO efficient implementation
+        for rule in self.dump()['rules']:
+            if rule_name == rule['rule_name']:
+                return rule
+
+        return None
+
+    def get_rule_by_id(self, rule_id):
+        for rule in self.dump()['rules']:
+            if rule['rule_id'] == rule_id:
+                return rule
+
+        return None
+
+    def get_rule_root(self, rule_name):
+        rule = self.get_rule(rule_name)
+        if rule is None:
+            return None
+
+        assert(rule['steps'][0]['op'] == 'take')
+        return rule['steps'][0]['item']
+
+    def get_osds_under(self, root_id):
+        # TODO don't abuse dump like this
+        d = self.dump()
+        buckets = dict([(b['id'], b) for b in d['buckets']])
+
+        osd_list = []
+
+        def accumulate(b):
+            for item in b['items']:
+                if item['id'] >= 0:
+                    osd_list.append(item['id'])
+                else:
+                    try:
+                        accumulate(buckets[item['id']])
+                    except KeyError:
+                        pass
+
+        accumulate(buckets[root_id])
+
+        return osd_list
+
+    def device_class_counts(self):
+        result = defaultdict(int)
+        # TODO don't abuse dump like this
+        d = self.dump()
+        for device in d['devices']:
+            cls = device.get('class', None)
+            result[cls] += 1
+
+        return dict(result)
 
 
 class MgrStandbyModule(ceph_module.BaseMgrStandbyModule):
