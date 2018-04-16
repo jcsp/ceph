@@ -159,8 +159,8 @@ IPv4 and IPv6 addresses.
 These defaults can be changed via the configuration key facility on a
 cluster-wide level (so they apply to all manager instances) as follows::
 
-  $ ceph config set mgr mgr/dashboard/server_addr $IP
-  $ ceph config set mgr mgr/dashboard/server_port $PORT
+  ceph config set mgr mgr/dashboard/server_addr $IP
+  ceph config set mgr mgr/dashboard/server_port $PORT
 
 Since each ``ceph-mgr`` hosts its own instance of dashboard, it may also be
 necessary to configure them separately. The IP address and port for a specific
