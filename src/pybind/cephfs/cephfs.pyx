@@ -111,6 +111,8 @@ cdef extern from "cephfs/libcephfs.h" nogil:
 
     int ceph_mount(ceph_mount_info *cmount, const char *root)
     int ceph_unmount(ceph_mount_info *cmount)
+    int ceph_abort_conn(ceph_mount_info *cmount)
+    uint64_t ceph_get_instance_id(ceph_mount_info *cmount)
     int ceph_fstatx(ceph_mount_info *cmount, int fd, statx *stx, unsigned want, unsigned flags)
     int ceph_statx(ceph_mount_info *cmount, const char *path, statx *stx, unsigned want, unsigned flags)
     int ceph_statfs(ceph_mount_info *cmount, const char *path, statvfs *stbuf)
@@ -559,6 +561,26 @@ cdef class LibCephFS(object):
             raise make_ex(ret, "error calling ceph_unmount")
         self.state = "initialized"
 
+    def abort_conn(self):
+        """
+        Abort mds connections.
+        """
+        self.require_state("mounted")
+        with nogil:
+            ret = ceph_abort_conn(self.cluster)
+        if ret != 0:
+            raise make_ex(ret, "error calling ceph_abort_conn")
+        self.state = "initialized"
+
+    def get_instance_id(self):
+        """
+        Get a global id for current instance
+        """
+        self.require_state("initialized", "mounted")
+        with nogil:
+            ret = ceph_get_instance_id(self.cluster)
+        return ret;
+
     def statfs(self, path):
         """
         Perform a statfs on the ceph file system.  This call fills in file system wide statistics
@@ -678,11 +700,13 @@ cdef class LibCephFS(object):
         if not dirent:
             return None
 
+        d_name = dirent.d_name if sys.version[0:2] == '2.' else dirent.d_name.\
+                 decode()
         return DirEntry(d_ino=dirent.d_ino,
                         d_off=dirent.d_off,
                         d_reclen=dirent.d_reclen,
                         d_type=dirent.d_type,
-                        d_name=dirent.d_name)
+                        d_name=d_name)
 
     def closedir(self, DirResult dir_handler):
         """

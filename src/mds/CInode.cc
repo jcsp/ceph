@@ -154,7 +154,7 @@ ostream& operator<<(ostream& out, const CInode& in)
 
   if (in.inode.is_dir()) {
     out << " " << in.inode.dirstat;
-    if (g_conf->mds_debug_scatterstat && in.is_projected()) {
+    if (g_conf()->mds_debug_scatterstat && in.is_projected()) {
       const CInode::mempool_inode *pi = in.get_projected_inode();
       out << "->" << pi->dirstat;
     }
@@ -168,7 +168,7 @@ ostream& operator<<(ostream& out, const CInode& in)
   out << " " << in.inode.rstat;
   if (!(in.inode.rstat == in.inode.accounted_rstat))
     out << "/" << in.inode.accounted_rstat;
-  if (g_conf->mds_debug_scatterstat && in.is_projected()) {
+  if (g_conf()->mds_debug_scatterstat && in.is_projected()) {
     const CInode::mempool_inode *pi = in.get_projected_inode();
     out << "->" << pi->rstat;
     if (!(pi->rstat == pi->accounted_rstat))
@@ -1081,6 +1081,9 @@ struct C_IO_Inode_Stored : public CInodeIOContext {
   void finish(int r) override {
     in->_stored(r, version, fin);
   }
+  void print(ostream& out) const override {
+    out << "inode_store(" << in->ino() << ")";
+  }
 };
 
 object_t InodeStoreBase::get_object_name(inodeno_t ino, frag_t fg, const char *suffix)
@@ -1173,6 +1176,9 @@ struct C_IO_Inode_Fetched : public CInodeIOContext {
     // Ignore 'r', because we fetch from two places, so r is usually ENOENT
     in->_fetched(bl, bl2, fin);
   }
+  void print(ostream& out) const override {
+    out << "inode_fetch(" << in->ino() << ")";
+  }
 };
 
 void CInode::fetch(MDSInternalContextBase *fin)
@@ -1261,6 +1267,9 @@ struct C_IO_Inode_StoredBacktrace : public CInodeIOContext {
   C_IO_Inode_StoredBacktrace(CInode *i, version_t v, Context *f) : CInodeIOContext(i), version(v), fin(f) {}
   void finish(int r) override {
     in->_stored_backtrace(r, version, fin);
+  }
+  void print(ostream& out) const override {
+    out << "backtrace_store(" << in->ino() << ")";
   }
 };
 
@@ -1423,7 +1432,7 @@ void CInode::verify_diri_backtrace(bufferlist &bl, int err)
   if (err) {
     MDSRank *mds = mdcache->mds;
     mds->clog->error() << "bad backtrace on directory inode " << ino();
-    assert(!"bad backtrace" == (g_conf->mds_verify_backtrace > 1));
+    assert(!"bad backtrace" == (g_conf()->mds_verify_backtrace > 1));
 
     mark_dirty_parent(mds->mdlog->get_current_segment(), false);
     mds->mdlog->flush();
@@ -1768,7 +1777,7 @@ void CInode::decode_lock_state(int type, bufferlist& bl)
 	    p.second->state_clear(CDir::STATE_DIRTYDFT);
 	}
       }
-      if (g_conf->mds_debug_frag)
+      if (g_conf()->mds_debug_frag)
 	verify_dirfrags();
     }
     break;
@@ -2195,7 +2204,7 @@ void CInode::finish_scatter_gather_update(int type)
 	    pf->fragstat.nsubdirs < 0) {
 	  clog->error() << "bad/negative dir size on "
 	      << dir->dirfrag() << " " << pf->fragstat;
-	  assert(!"bad/negative fragstat" == g_conf->mds_verify_scatter);
+	  assert(!"bad/negative fragstat" == g_conf()->mds_verify_scatter);
 	  
 	  if (pf->fragstat.nfiles < 0)
 	    pf->fragstat.nfiles = 0;
@@ -2232,7 +2241,7 @@ void CInode::finish_scatter_gather_update(int type)
 	  } else {
 	    clog->error() << "unmatched fragstat on " << ino() << ", inode has "
 			  << pi->dirstat << ", dirfrags have " << dirstat;
-	    assert(!"unmatched fragstat" == g_conf->mds_verify_scatter);
+	    assert(!"unmatched fragstat" == g_conf()->mds_verify_scatter);
 	  }
 	  // trust the dirfrags for now
 	  version_t v = pi->dirstat.version;
@@ -2251,7 +2260,7 @@ void CInode::finish_scatter_gather_update(int type)
         make_path_string(path);
 	clog->error() << "Inconsistent statistics detected: fragstat on inode "
                       << ino() << " (" << path << "), inode has " << pi->dirstat;
-	assert(!"bad/negative fragstat" == g_conf->mds_verify_scatter);
+	assert(!"bad/negative fragstat" == g_conf()->mds_verify_scatter);
 
 	if (pi->dirstat.nfiles < 0)
 	  pi->dirstat.nfiles = 0;
@@ -2343,7 +2352,7 @@ void CInode::finish_scatter_gather_update(int type)
 	    clog->error() << "inconsistent rstat on inode " << ino()
                           << ", inode has " << pi->rstat
                           << ", directory fragments have " << rstat;
-	    assert(!"unmatched rstat" == g_conf->mds_verify_scatter);
+	    assert(!"unmatched rstat" == g_conf()->mds_verify_scatter);
 	  }
 	  // trust the dirfrag for now
 	  version_t v = pi->rstat.version;
@@ -2422,7 +2431,7 @@ void CInode::add_dir_waiter(frag_t fg, MDSInternalContextBase *c)
   dout(10) << __func__ << " frag " << fg << " " << c << " on " << *this << dendl;
 }
 
-void CInode::take_dir_waiting(frag_t fg, list<MDSInternalContextBase*>& ls)
+void CInode::take_dir_waiting(frag_t fg, MDSInternalContextBase::vec& ls)
 {
   if (waiting_on_dir.empty())
     return;
@@ -2430,7 +2439,8 @@ void CInode::take_dir_waiting(frag_t fg, list<MDSInternalContextBase*>& ls)
   auto it = waiting_on_dir.find(fg);
   if (it != waiting_on_dir.end()) {
     dout(10) << __func__ << " frag " << fg << " on " << *this << dendl;
-    ls.splice(ls.end(), it->second);
+    auto& waiting = it->second;
+    ls.insert(ls.end(), waiting.begin(), waiting.end());
     waiting_on_dir.erase(it);
 
     if (waiting_on_dir.empty())
@@ -2458,14 +2468,15 @@ void CInode::add_waiter(uint64_t tag, MDSInternalContextBase *c)
   MDSCacheObject::add_waiter(tag, c);
 }
 
-void CInode::take_waiting(uint64_t mask, list<MDSInternalContextBase*>& ls)
+void CInode::take_waiting(uint64_t mask, MDSInternalContextBase::vec& ls)
 {
   if ((mask & WAIT_DIR) && !waiting_on_dir.empty()) {
     // take all dentry waiters
     while (!waiting_on_dir.empty()) {
       auto it = waiting_on_dir.begin();
       dout(10) << __func__ << " dirfrag " << it->first << " on " << *this << dendl;
-      ls.splice(ls.end(), it->second);
+      auto& waiting = it->second;
+      ls.insert(ls.end(), waiting.begin(), waiting.end());
       waiting_on_dir.erase(it);
     }
     put(PIN_DIRWAITER);
@@ -2496,7 +2507,7 @@ bool CInode::freeze_inode(int auth_pin_allowance)
   return true;
 }
 
-void CInode::unfreeze_inode(list<MDSInternalContextBase*>& finished) 
+void CInode::unfreeze_inode(MDSInternalContextBase::vec& finished) 
 {
   dout(10) << __func__ << dendl;
   if (state_test(STATE_FREEZING)) {
@@ -2512,7 +2523,7 @@ void CInode::unfreeze_inode(list<MDSInternalContextBase*>& finished)
 
 void CInode::unfreeze_inode()
 {
-    list<MDSInternalContextBase*> finished;
+    MDSInternalContextBase::vec finished;
     unfreeze_inode(finished);
     mdcache->mds->queue_waiters(finished);
 }
@@ -2528,13 +2539,13 @@ void CInode::unfreeze_auth_pin()
   assert(state_test(CInode::STATE_FROZENAUTHPIN));
   state_clear(CInode::STATE_FROZENAUTHPIN);
   if (!state_test(STATE_FREEZING|STATE_FROZEN)) {
-    list<MDSInternalContextBase*> finished;
+    MDSInternalContextBase::vec finished;
     take_waiting(WAIT_UNFREEZE, finished);
     mdcache->mds->queue_waiters(finished);
   }
 }
 
-void CInode::clear_ambiguous_auth(list<MDSInternalContextBase*>& finished)
+void CInode::clear_ambiguous_auth(MDSInternalContextBase::vec& finished)
 {
   assert(state_test(CInode::STATE_AMBIGUOUSAUTH));
   state_clear(CInode::STATE_AMBIGUOUSAUTH);
@@ -2543,7 +2554,7 @@ void CInode::clear_ambiguous_auth(list<MDSInternalContextBase*>& finished)
 
 void CInode::clear_ambiguous_auth()
 {
-  list<MDSInternalContextBase*> finished;
+  MDSInternalContextBase::vec finished;
   clear_ambiguous_auth(finished);
   mdcache->mds->queue_waiters(finished);
 }
@@ -2616,7 +2627,7 @@ void CInode::adjust_nested_auth_pins(int a, void *by)
 	   << auth_pins << "+" << nested_auth_pins << dendl;
   assert(nested_auth_pins >= 0);
 
-  if (g_conf->mds_debug_auth_pins) {
+  if (g_conf()->mds_debug_auth_pins) {
     // audit
     int s = 0;
     for (const auto &p : dirfrags) {
@@ -2680,7 +2691,7 @@ CInode::mempool_old_inode& CInode::cow_old_inode(snapid_t follows, bool cow_head
 
   old.inode.trim_client_ranges(follows);
 
-  if (g_conf->mds_snap_rstat &&
+  if (g_conf()->mds_snap_rstat &&
       !(old.inode.rstat == old.inode.accounted_rstat))
     dirty_old_rstats.insert(follows);
   
@@ -3075,7 +3086,7 @@ void CInode::remove_client_cap(client_t client)
   bool fcntl_removed = fcntl_locks ? fcntl_locks->remove_all_from(client) : false;
   bool flock_removed = flock_locks ? flock_locks->remove_all_from(client) : false; 
   if (fcntl_removed || flock_removed) {
-    list<MDSInternalContextBase*> waiters;
+    MDSInternalContextBase::vec waiters;
     take_waiting(CInode::WAIT_FLOCK, waiters);
     mdcache->mds->queue_waiters(waiters);
   }
@@ -3813,7 +3824,7 @@ void CInode::_decode_locks_state(bufferlist::const_iterator& p, bool is_new)
     policylock.mark_need_recover();
   }
 }
-void CInode::_decode_locks_rejoin(bufferlist::const_iterator& p, list<MDSInternalContextBase*>& waiters,
+void CInode::_decode_locks_rejoin(bufferlist::const_iterator& p, MDSInternalContextBase::vec& waiters,
 				  list<SimpleLock*>& eval_locks, bool survivor)
 {
   authlock.decode_state_rejoin(p, waiters, survivor);
@@ -4763,7 +4774,7 @@ int64_t CInode::get_backtrace_pool() const
 
 void CInode::maybe_export_pin(bool update)
 {
-  if (!g_conf->mds_bal_export_pin)
+  if (!g_conf()->mds_bal_export_pin)
     return;
   if (!is_dir() || !is_normal())
     return;

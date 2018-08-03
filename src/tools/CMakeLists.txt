@@ -106,3 +106,5 @@ if(WITH_RBD)
     add_subdirectory(rbd_ggate)
   endif()
 endif(WITH_RBD)
+
+add_subdirectory(ceph-dencoder)

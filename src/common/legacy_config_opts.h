@@ -329,9 +329,12 @@ OPTION(auth_service_required, OPT_STR)   // required by daemons of clients
 OPTION(auth_client_required, OPT_STR)     // what clients require of daemons
 OPTION(auth_supported, OPT_STR)               // deprecated; default value for above if they are not defined.
 OPTION(max_rotating_auth_attempts, OPT_INT)
-OPTION(cephx_require_signatures, OPT_BOOL) //  If true, don't talk to Cephx partners if they don't support message signing; off by default
+OPTION(cephx_require_signatures, OPT_BOOL)
 OPTION(cephx_cluster_require_signatures, OPT_BOOL)
 OPTION(cephx_service_require_signatures, OPT_BOOL)
+OPTION(cephx_require_version, OPT_INT)
+OPTION(cephx_cluster_require_version, OPT_INT)
+OPTION(cephx_service_require_version, OPT_INT)
 OPTION(cephx_sign_messages, OPT_BOOL)  // Default to signing session messages if supported
 OPTION(auth_mon_ticket_ttl, OPT_DOUBLE)
 OPTION(auth_service_ticket_ttl, OPT_DOUBLE)
@@ -441,7 +444,6 @@ OPTION(mds_bal_split_rd, OPT_FLOAT)
 OPTION(mds_bal_split_wr, OPT_FLOAT)
 OPTION(mds_bal_split_bits, OPT_INT)
 OPTION(mds_bal_merge_size, OPT_INT)
-OPTION(mds_bal_fragment_interval, OPT_INT)      // seconds
 OPTION(mds_bal_fragment_size_max, OPT_INT) // order of magnitude higher than split size
 OPTION(mds_bal_fragment_fast_factor, OPT_FLOAT) // multiple of size_max that triggers immediate split
 OPTION(mds_bal_idle_threshold, OPT_FLOAT)
@@ -677,8 +679,6 @@ OPTION(osd_recovery_sleep_hdd, OPT_FLOAT)
 OPTION(osd_recovery_sleep_ssd, OPT_FLOAT)
 OPTION(osd_snap_trim_sleep, OPT_DOUBLE)
 OPTION(osd_scrub_invalid_stats, OPT_BOOL)
-OPTION(osd_remove_thread_timeout, OPT_INT)
-OPTION(osd_remove_thread_suicide_timeout, OPT_INT)
 OPTION(osd_command_thread_timeout, OPT_INT)
 OPTION(osd_command_thread_suicide_timeout, OPT_INT)
 OPTION(osd_heartbeat_interval, OPT_INT)       // (seconds) how often we ping peers
@@ -718,7 +718,6 @@ OPTION(osd_copyfrom_max_chunk, OPT_U64)   // max size of a COPYFROM chunk
 OPTION(osd_push_per_object_cost, OPT_U64)  // push cost per object
 OPTION(osd_max_push_cost, OPT_U64)  // max size of push message
 OPTION(osd_max_push_objects, OPT_U64)  // max objects in single push op
-OPTION(osd_recovery_forget_lost_objects, OPT_BOOL)   // off for now
 OPTION(osd_max_scrubs, OPT_INT)
 OPTION(osd_scrub_during_recovery, OPT_BOOL) // Allow new scrubs to start while recovery is active on the OSD
 OPTION(osd_scrub_begin_hour, OPT_INT)
@@ -1225,8 +1224,6 @@ OPTION(journal_aio, OPT_BOOL)
 OPTION(journal_force_aio, OPT_BOOL)
 OPTION(journal_block_size, OPT_INT)
 
-// max bytes to search ahead in journal searching for corruption
-OPTION(journal_max_corrupt_search, OPT_U64)
 OPTION(journal_block_align, OPT_BOOL)
 OPTION(journal_write_header_frequency, OPT_U64)
 OPTION(journal_max_write_bytes, OPT_INT)
@@ -1299,6 +1296,7 @@ OPTION(rgw_content_length_compat, OPT_BOOL) // Check both HTTP_CONTENT_LENGTH an
 OPTION(rgw_lifecycle_work_time, OPT_STR) //job process lc  at 00:00-06:00s
 OPTION(rgw_lc_lock_max_time, OPT_INT)  // total run time for a single lc processor work
 OPTION(rgw_lc_max_objs, OPT_INT)
+OPTION(rgw_lc_max_rules, OPT_U32)  // Max rules set on one bucket
 OPTION(rgw_lc_debug_interval, OPT_INT)  // Debug run interval, in seconds
 OPTION(rgw_script_uri, OPT_STR) // alternative value for SCRIPT_URI if not set in request
 OPTION(rgw_request_uri, OPT_STR) // alternative value for REQUEST_URI if not set in request
@@ -1335,6 +1333,10 @@ OPTION(rgw_s3_auth_use_rados, OPT_BOOL)  // should we try to use the internal cr
 OPTION(rgw_s3_auth_use_keystone, OPT_BOOL)  // should we try to use keystone for s3?
 OPTION(rgw_s3_auth_order, OPT_STR) // s3 authentication order to try
 OPTION(rgw_barbican_url, OPT_STR)  // url for barbican server
+OPTION(rgw_opa_url, OPT_STR)  // url for OPA server
+OPTION(rgw_opa_token, OPT_STR)  // Bearer token OPA uses to authenticate client requests
+OPTION(rgw_opa_verify_ssl, OPT_BOOL) // should we try to verify OPA's ssl
+OPTION(rgw_use_opa_authz, OPT_BOOL) // should we use OPA to authorize client requests?
 
 /* OpenLDAP-style LDAP parameter strings */
 /* rgw_ldap_uri  space-separated list of LDAP servers in URI format */
@@ -1434,6 +1436,8 @@ OPTION(rgw_md_log_max_shards, OPT_INT) // max shards for metadata log
 OPTION(rgw_num_zone_opstate_shards, OPT_INT) // max shards for keeping inter-region copy progress info
 OPTION(rgw_opstate_ratelimit_sec, OPT_INT) // min time between opstate updates on a single upload (0 for disabling ratelimit)
 OPTION(rgw_curl_wait_timeout_ms, OPT_INT) // timeout for certain curl calls
+OPTION(rgw_curl_low_speed_limit, OPT_INT) // low speed limit for certain curl calls
+OPTION(rgw_curl_low_speed_time, OPT_INT) // low speed time for certain curl calls
 OPTION(rgw_copy_obj_progress, OPT_BOOL) // should dump progress during long copy operations?
 OPTION(rgw_copy_obj_progress_every_bytes, OPT_INT) // min bytes between copy progress output
 OPTION(rgw_obj_tombstone_cache_size, OPT_INT) // how many objects in tombstone cache, which is used in multi-zone sync to keep

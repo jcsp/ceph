@@ -2345,6 +2345,54 @@ TEST_F(TestLibRBD, TestEmptyDiscard)
   rados_ioctx_destroy(ioctx);
 }
 
+TEST_F(TestLibRBD, TestFUA)
+{
+  rados_ioctx_t ioctx;
+  rados_ioctx_create(_cluster, m_pool_name.c_str(), &ioctx);
+
+  rbd_image_t image_write;
+  rbd_image_t image_read;
+  int order = 0;
+  std::string name = get_temp_image_name();
+  uint64_t size = 2 << 20;
+
+  ASSERT_EQ(0, create_image(ioctx, name.c_str(), size, &order));
+  ASSERT_EQ(0, rbd_open(ioctx, name.c_str(), &image_write, NULL));
+  ASSERT_EQ(0, rbd_open(ioctx, name.c_str(), &image_read, NULL));
+
+  // enable writeback cache
+  rbd_flush(image_write);
+
+  char test_data[TEST_IO_SIZE + 1];
+  int i;
+
+  for (i = 0; i < TEST_IO_SIZE; ++i) {
+    test_data[i] = (char) (rand() % (126 - 33) + 33);
+  }
+  test_data[TEST_IO_SIZE] = '\0';
+  for (i = 0; i < 5; ++i)
+    ASSERT_PASSED(write_test_data, image_write, test_data,
+                  TEST_IO_SIZE * i, TEST_IO_SIZE, LIBRADOS_OP_FLAG_FADVISE_FUA);
+
+  for (i = 0; i < 5; ++i)
+    ASSERT_PASSED(read_test_data, image_read, test_data,
+                  TEST_IO_SIZE * i, TEST_IO_SIZE, 0);
+
+  for (i = 5; i < 10; ++i)
+    ASSERT_PASSED(aio_write_test_data, image_write, test_data,
+                  TEST_IO_SIZE * i, TEST_IO_SIZE, LIBRADOS_OP_FLAG_FADVISE_FUA);
+
+  for (i = 5; i < 10; ++i)
+    ASSERT_PASSED(aio_read_test_data, image_read, test_data,
+                  TEST_IO_SIZE * i, TEST_IO_SIZE, 0);
+
+  ASSERT_PASSED(validate_object_map, image_write);
+  ASSERT_PASSED(validate_object_map, image_read);
+  ASSERT_EQ(0, rbd_close(image_write));
+  ASSERT_EQ(0, rbd_close(image_read));
+  ASSERT_EQ(0, rbd_remove(ioctx, name.c_str()));
+  rados_ioctx_destroy(ioctx);
+}
 
 void simple_write_cb_pp(librbd::completion_t cb, void *arg)
 {
@@ -3119,6 +3167,24 @@ TEST_F(TestLibRBD, TestClone2)
 
   ASSERT_PASSED(validate_object_map, child);
   ASSERT_PASSED(validate_object_map, parent);
+
+  rbd_snap_info_t snaps[2];
+  int max_snaps = 2;
+  ASSERT_EQ(1, rbd_snap_list(parent, snaps, &max_snaps));
+  rbd_snap_list_end(snaps);
+
+  ASSERT_EQ(0, rbd_snap_remove_by_id(parent, snaps[0].id));
+
+  rbd_snap_namespace_type_t snap_namespace_type;
+  ASSERT_EQ(0, rbd_snap_get_namespace_type(parent, snaps[0].id,
+                                           &snap_namespace_type));
+  ASSERT_EQ(RBD_SNAP_NAMESPACE_TYPE_TRASH, snap_namespace_type);
+
+  char original_name[32];
+  ASSERT_EQ(0, rbd_snap_get_trash_namespace(parent, snaps[0].id,
+                                            original_name,
+                                            sizeof(original_name)));
+  ASSERT_EQ(0, strcmp("parent_snap", original_name));
 
   ASSERT_EQ(0, rbd_close(child));
   ASSERT_EQ(0, rbd_close(parent));

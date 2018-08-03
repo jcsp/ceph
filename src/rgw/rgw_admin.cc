@@ -319,6 +319,8 @@ void usage()
   cout << "   --min-rewrite-size        min object size for bucket rewrite (default 4M)\n";
   cout << "   --max-rewrite-size        max object size for bucket rewrite (default ULLONG_MAX)\n";
   cout << "   --min-rewrite-stripe-size min stripe size for object rewrite (default 0)\n";
+  cout << "   --trim-delay-ms           time interval in msec to limit the frequency of sync error log entries trimming operations,\n";
+  cout << "                             the trimming process will sleep the specified msec for every 1000 entries trimmed\n";
   cout << "\n";
   cout << "<date> := \"YYYY-MM-DD[ hh:mm:ss]\"\n";
   cout << "\nQuota options:\n";
@@ -2571,6 +2573,30 @@ static int scan_totp(CephContext *cct, ceph::real_time& now, rados::cls::otp::ot
   return -ENOENT;
 }
 
+static int trim_sync_error_log(int shard_id, const ceph::real_time& start_time,
+                               const ceph::real_time& end_time,
+                               const string& start_marker, const string& end_marker,
+                               int delay_ms)
+{
+  auto oid = RGWSyncErrorLogger::get_shard_oid(RGW_SYNC_ERROR_LOG_SHARD_PREFIX,
+                                               shard_id);
+  // call cls_log_trim() until it returns -ENODATA
+  for (;;) {
+    int ret = store->time_log_trim(oid, start_time, end_time,
+                                   start_marker, end_marker);
+    if (ret == -ENODATA) {
+      return 0;
+    }
+    if (ret < 0) {
+      return ret;
+    }
+    if (delay_ms) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    }
+  }
+  // unreachable
+}
+
 int main(int argc, const char **argv)
 {
   vector<const char*> args;
@@ -2588,8 +2614,8 @@ int main(int argc, const char **argv)
                          CODE_ENVIRONMENT_UTILITY, 0);
 
   // for region -> zonegroup conversion (must happen before common_init_finish())
-  if (!g_conf->rgw_region.empty() && g_conf->rgw_zonegroup.empty()) {
-    g_conf->set_val_or_die("rgw_zonegroup", g_conf->rgw_region.c_str());
+  if (!g_conf()->rgw_region.empty() && g_conf()->rgw_zonegroup.empty()) {
+    g_conf().set_val_or_die("rgw_zonegroup", g_conf()->rgw_region.c_str());
   }
 
   common_init_finish(g_ceph_context);
@@ -2738,6 +2764,7 @@ int main(int argc, const char **argv)
   vector<string> totp_pin;
   int totp_seconds = 0;
   int totp_window = 0;
+  int trim_delay_ms = 0;
 
   for (std::vector<const char*>::iterator i = args.begin(); i != args.end(); ) {
     if (ceph_argparse_double_dash(args, i)) {
@@ -3064,6 +3091,8 @@ int main(int argc, const char **argv)
       totp_seconds = atoi(val.c_str());
     } else if (ceph_argparse_witharg(args, i, &val, "--totp-window", (char*)NULL)) {
       totp_window = atoi(val.c_str());
+    } else if (ceph_argparse_witharg(args, i, &val, "--trim-delay-ms", (char*)NULL)) {
+      trim_delay_ms = atoi(val.c_str());
     } else if (strncmp(*i, "-", 1) == 0) {
       cerr << "ERROR: invalid flag " << *i << std::endl;
       return EINVAL;
@@ -3159,9 +3188,9 @@ int main(int argc, const char **argv)
     exit(1);
   }
 
-  realm_name = g_conf->rgw_realm;
-  zone_name = g_conf->rgw_zone;
-  zonegroup_name = g_conf->rgw_zonegroup;
+  realm_name = g_conf()->rgw_realm;
+  zone_name = g_conf()->rgw_zone;
+  zonegroup_name = g_conf()->rgw_zonegroup;
 
   RGWStreamFlusher f(formatter, cout);
 
@@ -3254,7 +3283,7 @@ int main(int argc, const char **argv)
     store = RGWStoreManager::get_raw_storage(g_ceph_context);
   } else {
     store = RGWStoreManager::get_storage(g_ceph_context, false, false, false, false, false,
-      need_cache && g_conf->rgw_cache_enabled);
+      need_cache && g_conf()->rgw_cache_enabled);
   }
   if (!store) {
     cerr << "couldn't init storage provider" << std::endl;
@@ -5883,9 +5912,8 @@ next:
   }
 
   if (opt_cmd == OPT_OBJECTS_EXPIRE) {
-    int ret = store->process_expire_objects();
-    if (ret < 0) {
-      cerr << "ERROR: process_expire_objects() processing returned error: " << cpp_strerror(-ret) << std::endl;
+    if (!store->process_expire_objects()) {
+      cerr << "ERROR: process_expire_objects() processing returned error." << std::endl;
       return 1;
     }
   }
@@ -6155,7 +6183,7 @@ next:
     int ret = br.cancel();
     if (ret < 0) {
       if (ret == -EBUSY) {
-	cerr << "There is ongoing resharding, please retry after " << g_conf->rgw_reshard_bucket_lock_duration <<
+	cerr << "There is ongoing resharding, please retry after " << g_conf()->rgw_reshard_bucket_lock_duration <<
 	     " seconds " << std::endl;
       } else {
 	cerr << "Error canceling bucket " << bucket_name << " resharding: " << cpp_strerror(-ret) <<
@@ -6680,7 +6708,7 @@ next:
       return -ret;
     }
 
-    auto num_shards = g_conf->rgw_md_log_max_shards;
+    auto num_shards = g_conf()->rgw_md_log_max_shards;
     ret = crs.run(create_admin_meta_log_trim_cr(store, &http, num_shards));
     if (ret < 0) {
       cerr << "automated mdlog trim failed with " << cpp_strerror(ret) << std::endl;
@@ -7172,9 +7200,10 @@ next:
     }
 
     for (; shard_id < ERROR_LOGGER_SHARDS; ++shard_id) {
-      string oid = RGWSyncErrorLogger::get_shard_oid(RGW_SYNC_ERROR_LOG_SHARD_PREFIX, shard_id);
-      ret = store->time_log_trim(oid, start_time.to_real_time(), end_time.to_real_time(), start_marker, end_marker);
-      if (ret < 0 && ret != -ENODATA) {
+      ret = trim_sync_error_log(shard_id, start_time.to_real_time(),
+                                end_time.to_real_time(), start_marker,
+                                end_marker, trim_delay_ms);
+      if (ret < 0) {
         cerr << "ERROR: sync error trim: " << cpp_strerror(-ret) << std::endl;
         return -ret;
       }

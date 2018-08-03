@@ -2501,6 +2501,43 @@ int print_obj_info(ObjectStore *store, coll_t coll, ghobject_t &ghobj, Formatter
   return r;
 }
 
+int corrupt_info(ObjectStore *store, coll_t coll, ghobject_t &ghobj, Formatter* formatter)
+{
+  auto ch = store->open_collection(coll);
+  bufferlist attr;
+  int r = store->getattr(ch, ghobj, OI_ATTR, attr);
+  if (r < 0) {
+    cerr << "Error getting attr on : " << make_pair(coll, ghobj) << ", "
+       << cpp_strerror(r) << std::endl;
+    return r;
+  }
+  object_info_t oi;
+  auto bp = attr.cbegin();
+  try {
+    decode(oi, bp);
+  } catch (...) {
+    r = -EINVAL;
+    cerr << "Error getting attr on : " << make_pair(coll, ghobj) << ", "
+         << cpp_strerror(r) << std::endl;
+    return r;
+  }
+  if (!dry_run) {
+    attr.clear();
+    oi.alloc_hint_flags += 0xff;
+    ObjectStore::Transaction t;
+    encode(oi, attr, -1);  /* fixme: using full features */
+    t.setattr(coll, ghobj, OI_ATTR, attr);
+    auto ch = store->open_collection(coll);
+    r = store->queue_transaction(ch, std::move(t));
+    if (r < 0) {
+      cerr << "Error writing object info: " << make_pair(coll, ghobj) << ", "
+         << cpp_strerror(r) << std::endl;
+      return r;
+    }
+  }
+  return 0;
+}
+
 int set_size(
   ObjectStore *store, coll_t coll, ghobject_t &ghobj, uint64_t setsize, Formatter* formatter,
   bool corrupt)
@@ -3267,12 +3304,11 @@ int main(int argc, char **argv)
     CODE_ENVIRONMENT_UTILITY_NODOUT,
     0);
   common_init_finish(g_ceph_context);
-  g_conf = g_ceph_context->_conf;
   if (debug) {
-    g_conf->set_val_or_die("log_to_stderr", "true");
-    g_conf->set_val_or_die("err_to_stderr", "true");
+    g_conf().set_val_or_die("log_to_stderr", "true");
+    g_conf().set_val_or_die("err_to_stderr", "true");
   }
-  g_conf->apply_changes(NULL);
+  g_conf().apply_changes(nullptr);
 
   // Special list handling.  Treating pretty_format as human readable,
   // with one object per line and not an enclosing array.
@@ -3290,7 +3326,7 @@ int main(int argc, char **argv)
 
   // Special handling for filestore journal, so we can dump it without mounting
   if (op == "dump-journal" && type == "filestore") {
-    int ret = mydump_journal(formatter, jpath, g_conf->journal_dio);
+    int ret = mydump_journal(formatter, jpath, g_conf()->journal_dio);
     if (ret < 0) {
       cerr << "journal-path: " << jpath << ": "
 	   << cpp_strerror(ret) << std::endl;
@@ -3986,6 +4022,15 @@ int main(int argc, char **argv)
 	}
 	ret = print_obj_info(fs, coll, ghobj, formatter);
 	goto out;
+      } else if (objcmd == "corrupt-info") {   // Undocumented testing feature
+	// There should not be any other arguments
+	if (vm.count("arg1") || vm.count("arg2")) {
+	  usage(desc);
+          ret = 1;
+          goto out;
+        }
+        ret = corrupt_info(fs, coll, ghobj, formatter);
+        goto out;
       } else if (objcmd == "set-size" || objcmd == "corrupt-size") {
 	// Undocumented testing feature
 	bool corrupt = (objcmd == "corrupt-size");

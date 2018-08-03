@@ -1625,15 +1625,18 @@ void PrimaryLogPG::calc_trim_to()
 		 PG_STATE_BACKFILL_TOOFULL)) {
     target = cct->_conf->osd_max_pg_log_entries;
   }
+  // limit pg log trimming up to the head of the log
+  eversion_t limit = pg_log.get_head();
+  dout(10) << __func__ << " limit = " << limit << dendl;
 
-  eversion_t limit = std::min(
-    min_last_complete_ondisk,
-    pg_log.get_can_rollback_to());
   if (limit != eversion_t() &&
       limit != pg_trim_to &&
       pg_log.get_log().approx_size() > target) {
+    dout(10) << __func__ << " approx pg log length =  "
+             << pg_log.get_log().approx_size() << dendl;
     size_t num_to_trim = std::min(pg_log.get_log().approx_size() - target,
 				  cct->_conf->osd_pg_log_trim_max);
+    dout(10) << __func__ << " num_to_trim =  " << num_to_trim << dendl;
     if (num_to_trim < cct->_conf->osd_pg_log_trim_min &&
 	cct->_conf->osd_pg_log_trim_max >= cct->_conf->osd_pg_log_trim_min) {
       return;
@@ -1643,16 +1646,15 @@ void PrimaryLogPG::calc_trim_to()
     for (size_t i = 0; i < num_to_trim; ++i) {
       new_trim_to = it->version;
       ++it;
-      if (new_trim_to > limit) {
+      if (new_trim_to >= limit) {
 	new_trim_to = limit;
-	dout(10) << "calc_trim_to trimming to min_last_complete_ondisk" << dendl;
+        dout(10) << "calc_trim_to trimming to limit: " << limit << dendl;
 	break;
       }
     }
     dout(10) << "calc_trim_to " << pg_trim_to << " -> " << new_trim_to << dendl;
     pg_trim_to = new_trim_to;
     assert(pg_trim_to <= pg_log.get_head());
-    assert(pg_trim_to <= min_last_complete_ondisk);
   }
 }
 
@@ -1750,7 +1752,7 @@ void PrimaryLogPG::do_request(
 	is_down() ||
 	is_incomplete() ||
 	(!is_active() && is_peered());
-      if (g_conf->osd_backoff_on_peering && !backoff) {
+      if (g_conf()->osd_backoff_on_peering && !backoff) {
 	if (is_peering()) {
 	  backoff = true;
 	}
@@ -2085,8 +2087,8 @@ void PrimaryLogPG::do_op(OpRequestRef& op)
       return;
     }
     if (can_backoff &&
-	(g_conf->osd_backoff_on_degraded ||
-	 (g_conf->osd_backoff_on_unfound && missing_loc.is_unfound(head)))) {
+	(g_conf()->osd_backoff_on_degraded ||
+	 (g_conf()->osd_backoff_on_unfound && missing_loc.is_unfound(head)))) {
       add_backoff(session, head, head);
       maybe_kick_recovery(head);
     } else {
@@ -2097,7 +2099,7 @@ void PrimaryLogPG::do_op(OpRequestRef& op)
 
   // degraded object?
   if (write_ordered && is_degraded_or_backfilling_object(head)) {
-    if (can_backoff && g_conf->osd_backoff_on_degraded) {
+    if (can_backoff && g_conf()->osd_backoff_on_degraded) {
       add_backoff(session, head, head);
       maybe_kick_recovery(head);
     } else {
@@ -3981,8 +3983,7 @@ void PrimaryLogPG::execute_ctx(OpContext *ctx)
   ctx->register_on_commit(
     [m, ctx, this](){
       if (ctx->op)
-	log_op_stats(
-	  ctx);
+	log_op_stats(*ctx->op, ctx->bytes_written, ctx->bytes_read);
 
       if (m && !ctx->sent_reply) {
 	MOSDOpReply *reply = ctx->reply;
@@ -4048,19 +4049,15 @@ void PrimaryLogPG::reply_ctx(OpContext *ctx, int r, eversion_t v, version_t uv)
   close_op_ctx(ctx);
 }
 
-void PrimaryLogPG::log_op_stats(OpContext *ctx)
+void PrimaryLogPG::log_op_stats(const OpRequest& op,
+				const uint64_t inb,
+				const uint64_t outb)
 {
-  OpRequestRef op = ctx->op;
-  const MOSDOp *m = static_cast<const MOSDOp*>(op->get_req());
+  const MOSDOp* const m = static_cast<const MOSDOp*>(op.get_req());
+  const utime_t now = ceph_clock_now();
 
-  utime_t now = ceph_clock_now();
-  utime_t latency = now;
-  latency -= ctx->op->get_req()->get_recv_stamp();
-  utime_t process_latency = now;
-  process_latency -= ctx->op->get_dequeued_time();
-
-  uint64_t inb = ctx->bytes_written;
-  uint64_t outb = ctx->bytes_read;
+  const utime_t latency = now - m->get_recv_stamp();
+  const utime_t process_latency = now - op.get_dequeued_time();
 
   osd->logger->inc(l_osd_op);
 
@@ -4069,7 +4066,7 @@ void PrimaryLogPG::log_op_stats(OpContext *ctx)
   osd->logger->tinc(l_osd_op_lat, latency);
   osd->logger->tinc(l_osd_op_process_lat, process_latency);
 
-  if (op->may_read() && op->may_write()) {
+  if (op.may_read() && op.may_write()) {
     osd->logger->inc(l_osd_op_rw);
     osd->logger->inc(l_osd_op_rw_inb, inb);
     osd->logger->inc(l_osd_op_rw_outb, outb);
@@ -4077,20 +4074,21 @@ void PrimaryLogPG::log_op_stats(OpContext *ctx)
     osd->logger->hinc(l_osd_op_rw_lat_inb_hist, latency.to_nsec(), inb);
     osd->logger->hinc(l_osd_op_rw_lat_outb_hist, latency.to_nsec(), outb);
     osd->logger->tinc(l_osd_op_rw_process_lat, process_latency);
-  } else if (op->may_read()) {
+  } else if (op.may_read()) {
     osd->logger->inc(l_osd_op_r);
     osd->logger->inc(l_osd_op_r_outb, outb);
     osd->logger->tinc(l_osd_op_r_lat, latency);
     osd->logger->hinc(l_osd_op_r_lat_outb_hist, latency.to_nsec(), outb);
     osd->logger->tinc(l_osd_op_r_process_lat, process_latency);
-  } else if (op->may_write() || op->may_cache()) {
+  } else if (op.may_write() || op.may_cache()) {
     osd->logger->inc(l_osd_op_w);
     osd->logger->inc(l_osd_op_w_inb, inb);
     osd->logger->tinc(l_osd_op_w_lat, latency);
     osd->logger->hinc(l_osd_op_w_lat_inb_hist, latency.to_nsec(), inb);
     osd->logger->tinc(l_osd_op_w_process_lat, process_latency);
-  } else
+  } else {
     ceph_abort();
+  }
 
   dout(15) << "log_op_stats " << *m
 	   << " inb " << inb
@@ -5671,9 +5669,9 @@ int PrimaryLogPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
     // munge ZERO -> TRUNCATE?  (don't munge to DELETE or we risk hosing attributes)
     if (op.op == CEPH_OSD_OP_ZERO &&
         obs.exists &&
-        op.extent.offset < osd->osd_max_object_size &&
+        op.extent.offset < static_cast<Option::size_t>(osd->osd_max_object_size) &&
         op.extent.length >= 1 &&
-        op.extent.length <= osd->osd_max_object_size &&
+        op.extent.length <= static_cast<Option::size_t>(osd->osd_max_object_size) &&
 	op.extent.offset + op.extent.length >= oi.size) {
       if (op.extent.offset >= oi.size) {
         // no-op
@@ -6296,7 +6294,6 @@ int PrimaryLogPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
         t->set_alloc_hint(soid, op.alloc_hint.expected_object_size,
                           op.alloc_hint.expected_write_size,
 			  op.alloc_hint.flags);
-        ctx->delta_stats.num_wr++;
         result = 0;
       }
       break;
@@ -6372,8 +6369,9 @@ int PrimaryLogPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	    oi.truncate_size = op.extent.truncate_size;
 	  }
 	}
-	result = check_offset_and_length(op.extent.offset, op.extent.length,
-          osd->osd_max_object_size, get_dpp());
+	result = check_offset_and_length(
+	  op.extent.offset, op.extent.length,
+	  static_cast<Option::size_t>(osd->osd_max_object_size), get_dpp());
 	if (result < 0)
 	  break;
 
@@ -6418,8 +6416,9 @@ int PrimaryLogPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	  result = -EINVAL;
 	  break;
 	}
-	result = check_offset_and_length(0, op.extent.length,
-          osd->osd_max_object_size, get_dpp());
+	result = check_offset_and_length(
+	  0, op.extent.length,
+          static_cast<Option::size_t>(osd->osd_max_object_size), get_dpp());
 	if (result < 0)
 	  break;
 
@@ -6466,8 +6465,9 @@ int PrimaryLogPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
       }
       ++ctx->num_write;
       { // zero
-	result = check_offset_and_length(op.extent.offset, op.extent.length,
-          osd->osd_max_object_size, get_dpp());
+	result = check_offset_and_length(
+	  op.extent.offset, op.extent.length,
+          static_cast<Option::size_t>(osd->osd_max_object_size), get_dpp());
 	if (result < 0)
 	  break;
  
@@ -6531,8 +6531,9 @@ int PrimaryLogPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	  break;
 	}
 
-        result = check_offset_and_length(op.extent.offset, op.extent.length,
-          osd->osd_max_object_size, get_dpp());
+        result = check_offset_and_length(
+	  op.extent.offset, op.extent.length,
+          static_cast<Option::size_t>(osd->osd_max_object_size), get_dpp());
         if (result < 0)
 	  break;
 
@@ -8485,7 +8486,8 @@ void PrimaryLogPG::complete_read_ctx(int result, OpContext *ctx)
 
   if (result >= 0) {
     if (!ctx->ignore_log_op_stats) {
-      log_op_stats(ctx);
+      log_op_stats(*ctx->op, ctx->bytes_written, ctx->bytes_read);
+
       publish_stats_to_osd();
     }
 
@@ -11486,6 +11488,8 @@ void PrimaryLogPG::_applied_recovered_object_replica()
 void PrimaryLogPG::recover_got(hobject_t oid, eversion_t v)
 {
   dout(10) << "got missing " << oid << " v " << v << dendl;
+  dout(10) << __func__ << " complete_to "
+           << pg_log.get_log().complete_to->version << dendl;
   pg_log.recover_got(oid, v, info);
   if (pg_log.get_log().complete_to != pg_log.get_log().log.end()) {
     dout(10) << "last_complete now " << info.last_complete

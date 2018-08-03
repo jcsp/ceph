@@ -220,8 +220,8 @@ OSDService::OSDService(OSD *osd) :
   recoverystate_perf(osd->recoverystate_perf),
   monc(osd->monc),
   class_handler(osd->class_handler),
-  osd_max_object_size(*cct->_conf, "osd_max_object_size"),
-  osd_skip_data_digest(*cct->_conf, "osd_skip_data_digest"),
+  osd_max_object_size(cct->_conf, "osd_max_object_size"),
+  osd_skip_data_digest(cct->_conf, "osd_skip_data_digest"),
   publish_lock("OSDService::publish_lock"),
   pre_publish_lock("OSDService::pre_publish_lock"),
   max_oldest_map(0),
@@ -1786,13 +1786,13 @@ int OSD::write_meta(CephContext *cct, ObjectStore *store, uuid_d& cluster_fsid, 
   if (r < 0)
     return r;
 
-  string key = cct->_conf->get_val<string>("key");
+  string key = cct->_conf.get_val<string>("key");
   if (key.size()) {
     r = store->write_meta("osd_key", key);
     if (r < 0)
       return r;
   } else {
-    string keyfile = cct->_conf->get_val<string>("keyfile");
+    string keyfile = cct->_conf.get_val<string>("keyfile");
     if (!keyfile.empty()) {
       bufferlist keybl;
       string err;
@@ -1894,7 +1894,7 @@ OSD::OSD(CephContext *cct_, ObjectStore *store_,
   store_is_rotational(store->is_rotational()),
   trace_endpoint("0.0.0.0", 0, "osd"),
   asok_hook(NULL),
-  m_osd_pg_epoch_max_lag_factor(cct->_conf->get_val<double>(
+  m_osd_pg_epoch_max_lag_factor(cct->_conf.get_val<double>(
 				  "osd_pg_epoch_max_lag_factor")),
   osd_compat(get_osd_compat_set()),
   osd_op_tp(cct, "OSD::osd_op_tp", "tp_osd_tp",
@@ -1999,7 +1999,7 @@ int OSD::pre_init()
     return -EBUSY;
   }
 
-  cct->_conf->add_observer(this);
+  cct->_conf.add_observer(this);
   return 0;
 }
 
@@ -2369,7 +2369,7 @@ float OSD::get_osd_recovery_sleep()
   if (!store_is_rotational && !journal_is_rotational)
     return cct->_conf->osd_recovery_sleep_ssd;
   else if (store_is_rotational && !journal_is_rotational)
-    return cct->_conf->get_val<double>("osd_recovery_sleep_hybrid");
+    return cct->_conf.get_val<double>("osd_recovery_sleep_hybrid");
   else
     return cct->_conf->osd_recovery_sleep_hdd;
 }
@@ -2624,7 +2624,7 @@ int OSD::init()
   while (monc->wait_auth_rotating(30.0) < 0) {
     derr << "unable to obtain rotating service keys; retrying" << dendl;
     ++rotating_auth_attempts;
-    if (rotating_auth_attempts > g_conf->max_rotating_auth_attempts) {
+    if (rotating_auth_attempts > g_conf()->max_rotating_auth_attempts) {
         derr << __func__ << " wait_auth_rotating timed out" << dendl;
 	exit(1);
     }
@@ -3253,13 +3253,13 @@ int OSD::shutdown()
   set_state(STATE_STOPPING);
 
   // Debugging
-  if (cct->_conf->get_val<bool>("osd_debug_shutdown")) {
-    cct->_conf->set_val("debug_osd", "100");
-    cct->_conf->set_val("debug_journal", "100");
-    cct->_conf->set_val("debug_filestore", "100");
-    cct->_conf->set_val("debug_bluestore", "100");
-    cct->_conf->set_val("debug_ms", "100");
-    cct->_conf->apply_changes(NULL);
+  if (cct->_conf.get_val<bool>("osd_debug_shutdown")) {
+    cct->_conf.set_val("debug_osd", "100");
+    cct->_conf.set_val("debug_journal", "100");
+    cct->_conf.set_val("debug_filestore", "100");
+    cct->_conf.set_val("debug_bluestore", "100");
+    cct->_conf.set_val("debug_ms", "100");
+    cct->_conf.apply_changes(nullptr);
   }
 
   // stop MgrClient earlier as it's more like an internal consumer of OSD
@@ -3373,7 +3373,7 @@ int OSD::shutdown()
 #ifdef PG_DEBUG_REFS
   service.dump_live_pgids();
 #endif
-  cct->_conf->remove_observer(this);
+  cct->_conf.remove_observer(this);
 
   service.meta_ch.reset();
 
@@ -3962,8 +3962,8 @@ bool OSD::maybe_wait_for_max_pg(const OSDMapRef& osdmap,
 				bool is_mon_create)
 {
   const auto max_pgs_per_osd =
-    (cct->_conf->get_val<uint64_t>("mon_max_pg_per_osd") *
-     cct->_conf->get_val<double>("osd_max_pg_per_osd_hard_ratio"));
+    (cct->_conf.get_val<uint64_t>("mon_max_pg_per_osd") *
+     cct->_conf.get_val<double>("osd_max_pg_per_osd_hard_ratio"));
 
   if (num_pgs < max_pgs_per_osd) {
     return false;
@@ -4000,8 +4000,8 @@ void OSD::resume_creating_pg()
   bool have_pending_creates = false;
   {
     const auto max_pgs_per_osd =
-      (cct->_conf->get_val<uint64_t>("mon_max_pg_per_osd") *
-       cct->_conf->get_val<double>("osd_max_pg_per_osd_hard_ratio"));
+      (cct->_conf.get_val<uint64_t>("mon_max_pg_per_osd") *
+       cct->_conf.get_val<double>("osd_max_pg_per_osd_hard_ratio"));
     if (max_pgs_per_osd <= num_pgs) {
       // this could happen if admin decreases this setting before a PG is removed
       return;
@@ -4994,7 +4994,7 @@ void TestOpsSocketHook::test_ops(OSDService *service, ObjectStore *store,
     cmd_getval(service->cct, cmdmap, "utime", delay, (int64_t)0);
     ostringstream oss;
     oss << delay;
-    int r = service->cct->_conf->set_val("osd_recovery_delay_start",
+    int r = service->cct->_conf.set_val("osd_recovery_delay_start",
 					 oss.str().c_str());
     if (r != 0) {
       ss << "set_recovery_delay: error setting "
@@ -5002,7 +5002,7 @@ void TestOpsSocketHook::test_ops(OSDService *service, ObjectStore *store,
 	 << r;
       return;
     }
-    service->cct->_conf->apply_changes(NULL);
+    service->cct->_conf.apply_changes(nullptr);
     ss << "set_recovery_delay: set osd_recovery_delay_start "
        << "to " << service->cct->_conf->osd_recovery_delay_start;
     return;
@@ -5031,7 +5031,7 @@ void TestOpsSocketHook::test_ops(OSDService *service, ObjectStore *store,
       double pool_scrub_max_interval = 0;
       p->opts.get(pool_opts_t::SCRUB_MAX_INTERVAL, &pool_scrub_max_interval);
       double scrub_max_interval = pool_scrub_max_interval > 0 ?
-        pool_scrub_max_interval : g_conf->osd_scrub_max_interval;
+        pool_scrub_max_interval : g_conf()->osd_scrub_max_interval;
       // Instead of marking must_scrub force a schedule scrub
       utime_t stamp = ceph_clock_now();
       stamp -= scrub_max_interval;
@@ -5816,7 +5816,7 @@ void OSD::do_command(Connection *con, ceph_tid_t tid, vector<string>& cmd, buffe
     for (vector<string>::iterator a = ++argsvec.begin(); a != argsvec.end(); ++a)
       args += " " + *a;
     osd_lock.Unlock();
-    r = cct->_conf->injectargs(args, &ss);
+    r = cct->_conf.injectargs(args, &ss);
     osd_lock.Lock();
   }
   else if (prefix == "config set") {
@@ -5825,9 +5825,9 @@ void OSD::do_command(Connection *con, ceph_tid_t tid, vector<string>& cmd, buffe
     cmd_getval(cct, cmdmap, "key", key);
     cmd_getval(cct, cmdmap, "value", val);
     osd_lock.Unlock();
-    r = cct->_conf->set_val(key, val, &ss);
+    r = cct->_conf.set_val(key, val, &ss);
     if (r == 0) {
-      cct->_conf->apply_changes(nullptr);
+      cct->_conf.apply_changes(nullptr);
     }
     osd_lock.Lock();
   }
@@ -5836,7 +5836,7 @@ void OSD::do_command(Connection *con, ceph_tid_t tid, vector<string>& cmd, buffe
     cmd_getval(cct, cmdmap, "key", key);
     osd_lock.Unlock();
     std::string val;
-    r = cct->_conf->get_val(key, &val);
+    r = cct->_conf.get_val(key, &val);
     if (r == 0) {
       ds << val;
     }
@@ -5846,9 +5846,9 @@ void OSD::do_command(Connection *con, ceph_tid_t tid, vector<string>& cmd, buffe
     std::string key;
     cmd_getval(cct, cmdmap, "key", key);
     osd_lock.Unlock();
-    r = cct->_conf->rm_val(key);
+    r = cct->_conf.rm_val(key);
     if (r == 0) {
-      cct->_conf->apply_changes(nullptr);
+      cct->_conf.apply_changes(nullptr);
     }
     if (r == -ENOENT) {
       r = 0;  // make command idempotent
@@ -6067,18 +6067,23 @@ void OSD::do_command(Connection *con, ceph_tid_t tid, vector<string>& cmd, buffe
       }
     }
 
-    uint64_t rate = (double)count / (end - start);
+    double elapsed = end - start;
+    double rate = count / elapsed;
+    double iops = rate / bsize;
     if (f) {
       f->open_object_section("osd_bench_results");
       f->dump_int("bytes_written", count);
       f->dump_int("blocksize", bsize);
-      f->dump_unsigned("bytes_per_sec", rate);
+      f->dump_float("elapsed_sec", elapsed);
+      f->dump_float("bytes_per_sec", rate);
+      f->dump_float("iops", iops);
       f->close_section();
       f->flush(ds);
     } else {
       ds << "bench: wrote " << byte_u_t(count)
 	 << " in blocks of " << byte_u_t(bsize) << " in "
-	 << (end-start) << " sec at " << byte_u_t(rate) << "/sec";
+	 << elapsed << " sec at " << byte_u_t(rate) << "/sec "
+	 << si_u_t(iops) << " IOPS";
     }
   }
 
@@ -6114,14 +6119,14 @@ void OSD::do_command(Connection *con, ceph_tid_t tid, vector<string>& cmd, buffe
     cmd_getval(cct, cmdmap, "delay", delay);
     ostringstream oss;
     oss << delay;
-    r = cct->_conf->set_val("osd_recovery_delay_start", oss.str().c_str());
+    r = cct->_conf.set_val("osd_recovery_delay_start", oss.str().c_str());
     if (r != 0) {
       ss << "kick_recovery_wq: error setting "
 	 << "osd_recovery_delay_start to '" << delay << "': error "
 	 << r;
       goto out;
     }
-    cct->_conf->apply_changes(NULL);
+    cct->_conf.apply_changes(nullptr);
     ss << "kicking recovery queue. set osd_recovery_delay_start "
        << "to " << cct->_conf->osd_recovery_delay_start;
   }
@@ -6202,7 +6207,7 @@ void OSD::probe_smart(const string& only_devid, ostream& ss)
 {
   set<string> devnames;
   store->get_devices(&devnames);
-  uint64_t smart_timeout = cct->_conf->get_val<uint64_t>(
+  uint64_t smart_timeout = cct->_conf.get_val<uint64_t>(
     "osd_smart_report_timeout");
 
   // == typedef std::map<std::string, mValue> mObject;
@@ -6532,9 +6537,11 @@ bool OSD::ms_get_authorizer(int dest_type, AuthAuthorizer **authorizer, bool for
 }
 
 
-bool OSD::ms_verify_authorizer(Connection *con, int peer_type,
-			       int protocol, bufferlist& authorizer_data, bufferlist& authorizer_reply,
-			       bool& isvalid, CryptoKey& session_key)
+bool OSD::ms_verify_authorizer(
+  Connection *con, int peer_type,
+  int protocol, bufferlist& authorizer_data, bufferlist& authorizer_reply,
+  bool& isvalid, CryptoKey& session_key,
+  std::unique_ptr<AuthAuthorizerChallenge> *challenge)
 {
   AuthAuthorizeHandler *authorize_handler = 0;
   switch (peer_type) {
@@ -6566,7 +6573,7 @@ bool OSD::ms_verify_authorizer(Connection *con, int peer_type,
     isvalid = authorize_handler->verify_authorizer(
       cct, keys,
       authorizer_data, authorizer_reply, name, global_id, caps_info, session_key,
-      &auid);
+      &auid, challenge);
   } else {
     dout(10) << __func__ << " no rotating_keys (yet), denied" << dendl;
     isvalid = false;
@@ -6968,7 +6975,7 @@ vector<DaemonHealthMetric> OSD::get_health_metrics()
     utime_t oldest_secs;
     const utime_t now = ceph_clock_now();
     auto too_old = now;
-    too_old -= cct->_conf->get_val<double>("osd_op_complaint_time");
+    too_old -= cct->_conf.get_val<double>("osd_op_complaint_time");
     int slow = 0;
     TrackedOpRef oldest_op;
     auto count_slow_ops = [&](TrackedOp& op) {
@@ -8979,7 +8986,7 @@ const char** OSD::get_tracked_conf_keys() const
   return KEYS;
 }
 
-void OSD::handle_conf_change(const md_config_t *conf,
+void OSD::handle_conf_change(const ConfigProxy& conf,
 			     const std::set <std::string> &changed)
 {
   if (changed.count("osd_max_backfills")) {
@@ -9028,7 +9035,7 @@ void OSD::handle_conf_change(const md_config_t *conf,
     update_log_config();
   }
   if (changed.count("osd_pg_epoch_max_lag_factor")) {
-    m_osd_pg_epoch_max_lag_factor = conf->get_val<double>(
+    m_osd_pg_epoch_max_lag_factor = conf.get_val<double>(
       "osd_pg_epoch_max_lag_factor");
   }
 

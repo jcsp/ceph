@@ -4,13 +4,14 @@
   "license": "MIT",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve --proxy-config proxy.conf.json --host 0.0.0.0",
+    "start": "ng serve --host 0.0.0.0",
     "build": "ng build",
     "test": "jest --watch",
     "test:ci": "jest --coverage",
     "lint": "ng lint",
     "e2e": "ng e2e",
-    "makePretty": "pretty-quick --staged"
+    "prettier": "prettier --write \"{src,e2e}/**/*.{ts,scss}\"",
+    "prettier:lint": "prettier --list-different \"{src,e2e}/**/*.{ts,scss}\""
   },
   "private": true,
   "jest": {
@@ -32,7 +33,8 @@
     ],
     "modulePathIgnorePatterns": [
       "<rootDir>/coverage/"
-    ]
+    ],
+    "testURL": "http://localhost/"
   },
   "dependencies": {
     "@angular/animations": "6.0.6",
@@ -76,20 +78,10 @@
     "jest": "23.2.0",
     "jest-canvas-mock": "1.0.3",
     "jest-preset-angular": "5.2.3",
-    "karma": "2.0.4",
-    "karma-chrome-launcher": "2.2.0",
-    "karma-cli": "1.0.1",
-    "karma-coverage-istanbul-reporter": "2.0.1",
-    "karma-jasmine": "1.1.2",
-    "karma-jasmine-html-reporter": "1.1.0",
-    "karma-junit-reporter": "1.2.0",
-    "karma-phantomjs-launcher": "1.0.4",
-    "prettier": "1.13.6",
-    "pretty-quick": "1.6.0",
+    "prettier": "1.13.7",
     "protractor": "5.3.2",
     "ts-node": "5.0.1",
     "tslint": "5.10.0",
-    "tslint-eslint-rules": "5.3.1",
     "typescript": "2.7.2"
   }
 }

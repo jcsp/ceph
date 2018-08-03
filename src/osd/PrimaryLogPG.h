@@ -418,11 +418,12 @@ public:
     const eversion_t &trim_to,
     const eversion_t &roll_forward_to,
     bool transaction_applied,
-    ObjectStore::Transaction &t) override {
+    ObjectStore::Transaction &t,
+    bool async = false) override {
     if (hset_history) {
       info.hit_set = *hset_history;
     }
-    append_log(logv, trim_to, roll_forward_to, t, transaction_applied);
+    append_log(logv, trim_to, roll_forward_to, t, transaction_applied, async);
   }
 
   void op_applied(const eversion_t &applied_version) override;
@@ -1121,7 +1122,7 @@ protected:
   void reply_ctx(OpContext *ctx, int err);
   void reply_ctx(OpContext *ctx, int err, eversion_t v, version_t uv);
   void make_writeable(OpContext *ctx);
-  void log_op_stats(OpContext *ctx);
+  void log_op_stats(const OpRequest& op, uint64_t inb, uint64_t outb);
 
   void write_update_size_and_usage(object_stat_sum_t& stats, object_info_t& oi,
 				   interval_set<uint64_t>& modified, uint64_t offset,

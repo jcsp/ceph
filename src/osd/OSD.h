@@ -275,18 +275,18 @@ public:
   MonClient   *&monc;
   ClassHandler  *&class_handler;
 
-  md_config_cacher_t<uint64_t> osd_max_object_size;
+  md_config_cacher_t<Option::size_t> osd_max_object_size;
   md_config_cacher_t<bool> osd_skip_data_digest;
 
   void enqueue_back(OpQueueItem&& qi);
   void enqueue_front(OpQueueItem&& qi);
 
   void maybe_inject_dispatch_delay() {
-    if (g_conf->osd_debug_inject_dispatch_delay_probability > 0) {
+    if (g_conf()->osd_debug_inject_dispatch_delay_probability > 0) {
       if (rand() % 10000 <
-	  g_conf->osd_debug_inject_dispatch_delay_probability * 10000) {
+	  g_conf()->osd_debug_inject_dispatch_delay_probability * 10000) {
 	utime_t t;
-	t.set_from_double(g_conf->osd_debug_inject_dispatch_delay_duration);
+	t.set_from_double(g_conf()->osd_debug_inject_dispatch_delay_duration);
 	t.sleep();
       }
     }
@@ -1230,7 +1230,7 @@ class OSD : public Dispatcher,
 public:
   // config observer bits
   const char** get_tracked_conf_keys() const override;
-  void handle_conf_change(const md_config_t *conf,
+  void handle_conf_change(const ConfigProxy& conf,
                           const std::set <std::string> &changed) override;
   void update_log_config();
   void check_config();
@@ -1607,7 +1607,8 @@ public:
     }
     bool ms_verify_authorizer(Connection *con, int peer_type,
 			      int protocol, bufferlist& authorizer_data, bufferlist& authorizer_reply,
-			      bool& isvalid, CryptoKey& session_key) override {
+			      bool& isvalid, CryptoKey& session_key,
+			      std::unique_ptr<AuthAuthorizerChallenge> *challenge) override {
       isvalid = true;
       return true;
     }
@@ -2115,7 +2116,8 @@ private:
   bool ms_get_authorizer(int dest_type, AuthAuthorizer **authorizer, bool force_new) override;
   bool ms_verify_authorizer(Connection *con, int peer_type,
 			    int protocol, bufferlist& authorizer, bufferlist& authorizer_reply,
-			    bool& isvalid, CryptoKey& session_key) override;
+			    bool& isvalid, CryptoKey& session_key,
+			    std::unique_ptr<AuthAuthorizerChallenge> *challenge) override;
   void ms_handle_connect(Connection *con) override;
   void ms_handle_fast_connect(Connection *con) override;
   void ms_handle_fast_accept(Connection *con) override;

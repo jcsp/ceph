@@ -7,24 +7,24 @@ from ceph_volume import conf
 from ceph_volume.tests.conftest import Factory
 
 
-class TestCheckID(object):
+class TestOSDIDAvailable(object):
 
     def test_false_if_id_is_none(self):
-        assert not prepare.check_id(None)
+        assert not prepare.osd_id_available(None)
 
     def test_returncode_is_not_zero(self, monkeypatch):
         monkeypatch.setattr('ceph_volume.process.call', lambda *a, **kw: ('', '', 1))
         with pytest.raises(RuntimeError):
-            prepare.check_id(1)
+            prepare.osd_id_available(1)
 
-    def test_id_does_exist(self, monkeypatch):
+    def test_id_does_exist_but_not_available(self, monkeypatch):
         stdout = dict(nodes=[
-            dict(id=0),
+            dict(id=0, status="up"),
         ])
         stdout = ['', json.dumps(stdout)]
         monkeypatch.setattr('ceph_volume.process.call', lambda *a, **kw: (stdout, '', 0))
-        result = prepare.check_id(0)
-        assert result
+        result = prepare.osd_id_available(0)
+        assert not result
 
     def test_id_does_not_exist(self, monkeypatch):
         stdout = dict(nodes=[
@@ -32,7 +32,7 @@ class TestCheckID(object):
         ])
         stdout = ['', json.dumps(stdout)]
         monkeypatch.setattr('ceph_volume.process.call', lambda *a, **kw: (stdout, '', 0))
-        result = prepare.check_id(1)
+        result = prepare.osd_id_available(1)
         assert not result
 
     def test_invalid_osd_id(self, monkeypatch):
@@ -41,8 +41,17 @@ class TestCheckID(object):
         ])
         stdout = ['', json.dumps(stdout)]
         monkeypatch.setattr('ceph_volume.process.call', lambda *a, **kw: (stdout, '', 0))
-        result = prepare.check_id("foo")
+        result = prepare.osd_id_available("foo")
         assert not result
+
+    def test_returns_true_when_id_is_destroyed(self, monkeypatch):
+        stdout = dict(nodes=[
+            dict(id=0, status="destroyed"),
+        ])
+        stdout = ['', json.dumps(stdout)]
+        monkeypatch.setattr('ceph_volume.process.call', lambda *a, **kw: (stdout, '', 0))
+        result = prepare.osd_id_available(0)
+        assert result
 
 
 class TestFormatDevice(object):
@@ -136,9 +145,16 @@ class TestOsdMkfsFilestore(object):
 
     @pytest.mark.parametrize('flag', mkfs_filestore_flags)
     def test_keyring_is_used(self, fake_call, monkeypatch, flag):
+        monkeypatch.setattr(prepare, '__release__', 'mimic')
         monkeypatch.setattr(system, 'chown', lambda path: True)
         prepare.osd_mkfs_filestore(1, 'asdf', keyring='secret')
         assert flag in fake_call.calls[0]['args'][0]
+
+    def test_keyring_is_used_luminous(self, fake_call, monkeypatch):
+        monkeypatch.setattr(prepare, '__release__', 'luminous')
+        monkeypatch.setattr(system, 'chown', lambda path: True)
+        prepare.osd_mkfs_filestore(1, 'asdf', keyring='secret')
+        assert '--keyfile' not in fake_call.calls[0]['args'][0]
 
 
 class TestOsdMkfsBluestore(object):
@@ -151,6 +167,12 @@ class TestOsdMkfsBluestore(object):
     def test_keyring_is_not_added(self, fake_call, monkeypatch):
         monkeypatch.setattr(system, 'chown', lambda path: True)
         prepare.osd_mkfs_bluestore(1, 'asdf')
+        assert '--keyfile' not in fake_call.calls[0]['args'][0]
+
+    def test_keyring_is_not_added_luminous(self, fake_call, monkeypatch):
+        monkeypatch.setattr(system, 'chown', lambda path: True)
+        prepare.osd_mkfs_bluestore(1, 'asdf')
+        monkeypatch.setattr(prepare, '__release__', 'luminous')
         assert '--keyfile' not in fake_call.calls[0]['args'][0]
 
     def test_wal_is_added(self, fake_call, monkeypatch):

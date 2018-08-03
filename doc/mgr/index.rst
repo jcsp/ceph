@@ -39,3 +39,5 @@ sensible.
     Telemetry plugin <telemetry>
     Iostat plugin <iostat>
     Crash plugin <crash>
+    Devicehealth plugin <devicehealth>
+    Rook plugin <rook>

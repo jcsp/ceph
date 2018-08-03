@@ -85,7 +85,7 @@ Configuration
 SSL/TLS Support
 ^^^^^^^^^^^^^^^
 
-All HTTP connections to the dashboard are secured with SSL/TLS. 
+All HTTP connections to the dashboard are secured with SSL/TLS by default.
 
 To get the dashboard up and running quickly, you can generate and install a
 self-signed certificate using the following built-in command::
@@ -118,6 +118,20 @@ of the ``ceph-mgr`` instance, usually the hostname)::
   $ ceph config-key set mgr/dashboard/$name/crt -i dashboard.crt
   $ ceph config-key set mgr/dashboard/$name/key -i dashboard.key
 
+SSL can also be disabled by setting this configuration value::
+
+  $ ceph config set mgr mgr/dashboard/ssl false
+
+This might be useful if the dashboard will be running behind a proxy which does
+not support SSL for its upstream servers or other situations where SSL is not
+wanted or required.
+
+.. warning::
+
+  Use caution when disabling SSL as usernames and passwords will be sent to the
+  dashboard unencrypted.
+
+
 .. note::
 
   You need to restart the Ceph manager processes manually after changing the SSL
@@ -134,9 +148,10 @@ Host name and port
 Like most web applications, dashboard binds to a TCP/IP address and TCP port.
 
 By default, the ``ceph-mgr`` daemon hosting the dashboard (i.e., the currently
-active manager) will bind to TCP port 8443. If no specific address has been
-configured, the web app will bind to ``::``, which corresponds to all available
-IPv4 and IPv6 addresses.
+active manager) will bind to TCP port 8443 or 8080 when SSL is disabled.
+
+If no specific address has been configured, the web app will bind to ``::``,
+which corresponds to all available IPv4 and IPv6 addresses.
 
 These defaults can be changed via the configuration key facility on a
 cluster-wide level (so they apply to all manager instances) as follows::
@@ -175,7 +190,7 @@ commands::
 
 
 Enabling the Object Gateway management frontend
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 To use the Object Gateway management functionality of the dashboard, you will
 need to provide the login credentials of a user with the ``system`` flag
@@ -216,6 +231,13 @@ exist and you may find yourself in the situation that you have to use them::
   $ ceph dashboard set-rgw-api-scheme <scheme>  # http or https
   $ ceph dashboard set-rgw-api-admin-resource <admin_resource>
   $ ceph dashboard set-rgw-api-user-id <user_id>
+
+If the Object Gateway takes too long to process requests and the dashboard runs
+into timeouts, then you can set the timeout value to your needs::
+
+  $ ceph dashboard set-rest-requests-timeout <seconds>
+
+The default value is 45 seconds.
 
 Enabling the Embedding of Grafana Dashboards
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

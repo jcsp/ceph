@@ -36,29 +36,6 @@
 #include "common/Formatter.h"
 #include "mds/mdstypes.h"
 
-/*
-
- boot  --> standby, creating, or starting.
-
-
- dne  ---->   creating  ----->   active*
- ^ ^___________/                /  ^ ^
- |                             /  /  |
- destroying                   /  /   |
-   ^                         /  /    |
-   |                        /  /     |
- stopped <---- stopping* <-/  /      |
-      \                      /       |
-        ----- starting* ----/        |
-                                     |
- failed                              |
-    \                                |
-     \--> replay*  --> reconnect* --> rejoin*
-
-     * = can fail
-
-*/
-
 class CephContext;
 class health_check_map_t;
 
@@ -78,7 +55,11 @@ class health_check_map_t;
 class MDSMap {
 public:
   /* These states are the union of the set of possible states of an MDS daemon,
-   * and the set of possible states of an MDS rank */
+   * and the set of possible states of an MDS rank. See
+   * doc/cephfs/mds-states.rst for state descriptions,
+   * doc/cephfs/mds-state-diagram.svg for a visual state diagram, and
+   * doc/cephfs/mds-state-diagram.dot to update mds-state-diagram.svg.
+   */
   typedef enum {
     // States of an MDS daemon not currently holding a rank
     // ====================================================
@@ -189,6 +170,8 @@ protected:
   __u32 session_autoclose = 300;
   uint64_t max_file_size = 1ULL<<40; /* 1TB */
 
+  int8_t min_compat_client = -1;
+
   std::vector<int64_t> data_pools;  // file data pools available to clients (via an ioctl).  first is the default.
   int64_t cas_pool = -1;            // where CAS objects go
   int64_t metadata_pool = -1;       // where fs metadata objects go
@@ -249,6 +232,9 @@ public:
 
   uint64_t get_max_filesize() const { return max_file_size; }
   void set_max_filesize(uint64_t m) { max_file_size = m; }
+
+  uint8_t get_min_compat_client() const { return min_compat_client; }
+  void set_min_compat_client(uint8_t version) { min_compat_client = version; }
   
   int get_flags() const { return flags; }
   bool test_flag(int f) const { return flags & f; }

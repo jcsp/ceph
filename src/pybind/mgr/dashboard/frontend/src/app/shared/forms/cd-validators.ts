@@ -81,19 +81,35 @@ export class CdValidators {
    * @param {Function} condition
    * @param {ValidatorFn[]} validators
    */
-  static validateIf(
-    formControl: AbstractControl,
-    condition: Function,
-    validators: ValidatorFn[]
-  ) {
-    formControl.setValidators((control: AbstractControl): {
-      [key: string]: any;
-    } => {
-      const value = condition.call(this);
-      if (value) {
-        return Validators.compose(validators)(control);
+  static validateIf(formControl: AbstractControl, condition: Function, validators: ValidatorFn[]) {
+    formControl.setValidators(
+      (
+        control: AbstractControl
+      ): {
+        [key: string]: any;
+      } => {
+        const value = condition.call(this);
+        if (value) {
+          return Validators.compose(validators)(control);
+        }
+        return null;
+      }
+    );
+  }
+
+  /**
+   * Validate if control1 and control2 have the same value.
+   * Error will be added to control2.
+   *
+   * @param {string} control1
+   * @param {string} control2
+   */
+  static match(control1: string, control2: string): ValidatorFn {
+    return (control: AbstractControl): { [key: string]: any } => {
+      if (control.get(control1).value !== control.get(control2).value) {
+        control.get(control2).setErrors({ ['match']: true });
       }
       return null;
-    });
+    };
   }
 }

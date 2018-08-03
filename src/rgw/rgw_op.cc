@@ -998,7 +998,7 @@ static bool validate_cors_rule_method(RGWCORSRule *rule, const char *req_meth) {
   else if (strcmp(req_meth, "DELETE") == 0) flags = RGW_CORS_DELETE;
   else if (strcmp(req_meth, "HEAD") == 0) flags = RGW_CORS_HEAD;
 
-  if ((rule->get_allowed_methods() & flags) == flags) {
+  if (rule->get_allowed_methods() & flags) {
     dout(10) << "Method " << req_meth << " is supported" << dendl;
   } else {
     dout(5) << "Method " << req_meth << " is not supported" << dendl;
@@ -2719,7 +2719,8 @@ void RGWCreateBucket::execute()
   if (op_ret < 0)
     return;
 
-  if (!location_constraint.empty() &&
+  if (!relaxed_region_enforcement &&
+      !location_constraint.empty() &&
       !store->has_zonegroup_api(location_constraint)) {
       ldpp_dout(this, 0) << "location constraint (" << location_constraint << ")"
                        << " can't be found." << dendl;
@@ -2728,7 +2729,7 @@ void RGWCreateBucket::execute()
       return;
   }
 
-  if (!store->get_zonegroup().is_master_zonegroup() && !location_constraint.empty() &&
+  if (!relaxed_region_enforcement && !store->get_zonegroup().is_master_zonegroup() && !location_constraint.empty() &&
       store->get_zonegroup().api_name != location_constraint) {
     ldpp_dout(this, 0) << "location constraint (" << location_constraint << ")"
                      << " doesn't match zonegroup" << " (" << store->get_zonegroup().api_name << ")"
@@ -3635,7 +3636,7 @@ void RGWPutObj::execute()
 
     op_ret = put_data_and_throttle(filter, data, ofs, need_to_wait);
     if (op_ret < 0) {
-      if (!need_to_wait || op_ret != -EEXIST) {
+      if (op_ret != -EEXIST) {
         ldpp_dout(this, 20) << "processor->thottle_data() returned ret="
 			  << op_ret << dendl;
         goto done;
@@ -5584,7 +5585,7 @@ void RGWCompleteMultipart::execute()
   rgw_pool meta_pool;
   rgw_raw_obj raw_obj;
   int max_lock_secs_mp =
-    s->cct->_conf->get_val<int64_t>("rgw_mp_lock_max_time");
+    s->cct->_conf.get_val<int64_t>("rgw_mp_lock_max_time");
   utime_t dur(max_lock_secs_mp, 0);
 
   store->obj_to_raw((s->bucket_info).placement_rule, meta_obj, &raw_obj);
@@ -5752,6 +5753,7 @@ void RGWCompleteMultipart::execute()
   obj_op.meta.flags = PUT_OBJ_CREATE;
   obj_op.meta.modify_tail = true;
   obj_op.meta.completeMultipart = true;
+  obj_op.meta.olh_epoch = olh_epoch;
   op_ret = obj_op.write_meta(ofs, accounted_size, attrs);
   if (op_ret < 0)
     return;
@@ -5936,8 +5938,8 @@ void RGWListBucketMultiparts::execute()
 
 void RGWGetHealthCheck::execute()
 {
-  if (!g_conf->rgw_healthcheck_disabling_path.empty() &&
-      (::access(g_conf->rgw_healthcheck_disabling_path.c_str(), F_OK) == 0)) {
+  if (!g_conf()->rgw_healthcheck_disabling_path.empty() &&
+      (::access(g_conf()->rgw_healthcheck_disabling_path.c_str(), F_OK) == 0)) {
     /* Disabling path specified & existent in the filesystem. */
     op_ret = -ERR_SERVICE_UNAVAILABLE; /* 503 */
   } else {

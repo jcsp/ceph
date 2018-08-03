@@ -3,10 +3,42 @@ import ceph_module  # noqa
 
 import json
 import logging
+import six
 import threading
 from collections import defaultdict
 import rados
 
+PG_STATES = [
+        "active",
+        "clean",
+        "down",
+        "recovery_unfound",
+        "backfill_unfound",
+        "scrubbing",
+        "degraded",
+        "inconsistent",
+        "peering",
+        "repair",
+        "recovering",
+        "forced_recovery",
+        "backfill_wait",
+        "incomplete",
+        "stale",
+        "remapped",
+        "deep",
+        "backfilling",
+        "forced_backfill",
+        "backfill_toofull",
+        "recovery_wait",
+        "recovery_toofull",
+        "undersized",
+        "activating",
+        "peered",
+        "snaptrim",
+        "snaptrim_wait",
+        "snaptrim_error",
+        "creating",
+        "unknown"]
 
 class CPlusPlusHandler(logging.Handler):
     def __init__(self, module_inst):
@@ -141,7 +173,7 @@ class CRUSHMap(ceph_module.BasePyCRUSH):
 
     def get_take_weight_osd_map(self, root):
         uglymap = self._get_take_weight_osd_map(root)
-        return { int(k): v for k, v in uglymap.get('weights', {}).iteritems() }
+        return { int(k): v for k, v in six.iteritems(uglymap.get('weights', {})) }
 
     @staticmethod
     def have_default_choose_args(dump):
@@ -282,6 +314,14 @@ class MgrModule(ceph_module.BaseMgrModule):
         """
         Called by the ceph-mgr service to notify the Python plugin
         that new state is available.
+
+        :param notify_type: string indicating what kind of notification,
+                            such as osd_map, mon_map, fs_map, mon_status,
+                            health, pg_summary, command, service_map
+        :param notify_id:  string (may be empty) that optionally specifies
+                            which entity is being notified about.  With
+                            "command" notifications this is set to the tag
+                            ``from send_command``.
         """
         pass
 
@@ -313,7 +353,7 @@ class MgrModule(ceph_module.BaseMgrModule):
         :param str data_name: Valid things to fetch are osd_crush_map_text, 
                 osd_map, osd_map_tree, osd_map_crush, config, mon_map, fs_map,
                 osd_metadata, pg_summary, io_rate, pg_dump, df, osd_stats,
-                health, mon_status, devices, device <devid>.
+                health, mon_status, devices, device <devid>, ec_profiles.
 
         Note:
             All these structures have their own JSON representations: experiment
@@ -453,10 +493,14 @@ class MgrModule(ceph_module.BaseMgrModule):
         """
         Fetch the daemon metadata for a particular service.
 
+        ceph-mgr fetches metadata asynchronously, so are windows of time during
+        addition/removal of services where the metadata is not available to
+        modules.  ``None`` is returned if no metadata is available.
+
         :param str svc_type: service type (e.g., 'mds', 'osd', 'mon')
         :param str svc_id: service id. convert OSD integer IDs to strings when
             calling this
-        :rtype: dict
+        :rtype: dict, or None if no metadata found
         """
         return self._ceph_get_metadata(svc_type, svc_id)
 
@@ -464,9 +508,12 @@ class MgrModule(ceph_module.BaseMgrModule):
         """
         Fetch the latest status for a particular service daemon.
 
+        This method may return ``None`` if no status information is
+        available, for example because the daemon hasn't fully started yet.
+
         :param svc_type: string (e.g., 'rgw')
         :param svc_id: string
-        :return: dict
+        :return: dict, or None if the service is not found
         """
         return self._ceph_get_daemon_status(svc_type, svc_id)
 
@@ -495,10 +542,10 @@ class MgrModule(ceph_module.BaseMgrModule):
 
     def set_health_checks(self, checks):
         """
-        Set module's health checks
-
         Set the module's current map of health checks.  Argument is a
         dict of check names to info, in this form:
+
+        ::
 
            {
              'CHECK_FOO': {
@@ -538,7 +585,8 @@ class MgrModule(ceph_module.BaseMgrModule):
 
     def get_mgr_id(self):
         """
-        Retrieve the mgr id.
+        Retrieve the name of the manager daemon where this plugin
+        is currently being executed (i.e. the active manager).
 
         :return: str
         """
@@ -655,7 +703,13 @@ class MgrModule(ceph_module.BaseMgrModule):
         """
         Run a self-test on the module. Override this function and implement
         a best as possible self-test for (automated) testing of the module
-        :return: bool
+
+        Indicate any failures by raising an exception.  This does not have
+        to be pretty, it's mainly for picking up regressions during
+        development, rather than use in the field.
+
+        :return: None, or an advisory string for developer interest, such
+                 as a json dump of some state.
         """
         pass
 
@@ -797,3 +851,19 @@ class MgrModule(ceph_module.BaseMgrModule):
         """
 
         return True, ""
+
+    def remote(self, module_name, method_name, *args, **kwargs):
+        """
+        Invoke a method on another module.  All arguments, and the return
+        value from the other module must be serializable.
+
+        :param module_name: Name of other module.  If module isn't loaded,
+                            an ImportError exception is raised.
+        :param method_name: Method name.  If it does not exist, a NameError
+                            exception is raised.
+        :param args: Argument tuple
+        :param kwargs: Keyword argument dict
+        :return:
+        """
+        return self._ceph_dispatch_remote(module_name, method_name,
+                                          args, kwargs)

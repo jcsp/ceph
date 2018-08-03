@@ -1532,7 +1532,7 @@ void PG::choose_async_recovery_ec(const map<pg_shard_t, pg_info_t> &all_info,
     version_t auth_version = auth_info.last_update.version;
     version_t candidate_version = shard_info.last_update.version;
     if (auth_version > candidate_version &&
-        (auth_version - candidate_version) > cct->_conf->get_val<uint64_t>("osd_async_recovery_min_pg_log_entries")) {
+        (auth_version - candidate_version) > cct->_conf.get_val<uint64_t>("osd_async_recovery_min_pg_log_entries")) {
       candidates_by_cost.insert(make_pair(auth_version - candidate_version, shard_i));
     }
   }
@@ -1583,7 +1583,7 @@ void PG::choose_async_recovery_replicated(const map<pg_shard_t, pg_info_t> &all_
     } else {
       approx_entries = candidate_version - auth_version;
     }
-    if (approx_entries > cct->_conf->get_val<uint64_t>("osd_async_recovery_min_pg_log_entries")) {
+    if (approx_entries > cct->_conf.get_val<uint64_t>("osd_async_recovery_min_pg_log_entries")) {
       candidates_by_cost.insert(make_pair(approx_entries, shard_i));
     }
   }
@@ -3295,8 +3295,6 @@ void PG::init(
 	   << dendl;
 
   set_role(role);
-  acting = newacting;
-  up = newup;
   init_primary_up_acting(
     newup,
     newacting,
@@ -3573,33 +3571,6 @@ void PG::write_if_dirty(ObjectStore::Transaction& t)
     t.omap_setkeys(coll, pgmeta_oid, km);
 }
 
-void PG::trim_log()
-{
-  assert(is_primary());
-  calc_trim_to();
-  dout(10) << __func__ << " to " << pg_trim_to << dendl;
-  if (pg_trim_to != eversion_t()) {
-    // inform peers to trim log
-    assert(!acting_recovery_backfill.empty());
-    for (set<pg_shard_t>::iterator i = acting_recovery_backfill.begin();
-	 i != acting_recovery_backfill.end();
-	 ++i) {
-      if (*i == pg_whoami) continue;
-      osd->send_message_osd_cluster(
-	i->osd,
-	new MOSDPGTrim(
-	  get_osdmap()->get_epoch(),
-	  spg_t(info.pgid.pgid, i->shard),
-	  pg_trim_to),
-	get_osdmap()->get_epoch());
-    }
-
-    // trim primary as well
-    pg_log.trim(pg_trim_to, info);
-    dirty_info = true;
-  }
-}
-
 void PG::add_log_entry(const pg_log_entry_t& e, bool applied)
 {
   // raise last_complete only if we were previously up to date
@@ -3626,7 +3597,8 @@ void PG::append_log(
   eversion_t trim_to,
   eversion_t roll_forward_to,
   ObjectStore::Transaction &t,
-  bool transaction_applied)
+  bool transaction_applied,
+  bool async)
 {
   if (transaction_applied)
     update_snap_map(logv, t);
@@ -3679,7 +3651,14 @@ void PG::append_log(
     last_rollback_info_trimmed_to_applied = roll_forward_to;
   }
 
-  pg_log.trim(trim_to, info);
+  dout(10) << __func__ << " approx pg log length =  "
+           << pg_log.get_log().approx_size() << dendl;
+  dout(10) << __func__ << " transaction_applied = "
+           << transaction_applied << dendl;
+  if (!transaction_applied || async)
+    dout(10) << __func__ << " " << pg_whoami
+             << " is async_recovery or backfill target" << dendl;
+  pg_log.trim(trim_to, info, transaction_applied, async);
 
   // update the local pg, pg log
   dirty_info = true;
@@ -4929,7 +4908,7 @@ void PG::chunky_scrub(ThreadPool::TPHandle &handle)
 	  osd->clog->debug(oss);
 	}
 
-	scrubber.preempt_left = cct->_conf->get_val<uint64_t>(
+	scrubber.preempt_left = cct->_conf.get_val<uint64_t>(
 	  "osd_scrub_max_preemptions");
 	scrubber.preempt_divisor = 1;
         break;
@@ -5158,7 +5137,7 @@ void PG::chunky_scrub(ThreadPool::TPHandle &handle)
 	  break;
 	}
 
-	scrubber.preempt_left = cct->_conf->get_val<uint64_t>(
+	scrubber.preempt_left = cct->_conf.get_val<uint64_t>(
 	  "osd_scrub_max_preemptions");
 	scrubber.preempt_divisor = 1;
 
@@ -5587,9 +5566,6 @@ bool PG::append_log_entries_update_missing(
   assert(entries.begin()->version > info.last_update);
 
   PGLogEntryHandler rollbacker{this, &t};
-  if (roll_forward_to) {
-    pg_log.roll_forward(&rollbacker);
-  }
   bool invalidate_stats =
     pg_log.append_new_log_entries(info.last_backfill,
 				  info.last_backfill_bitwise,
@@ -7806,9 +7782,6 @@ PG::RecoveryState::Recovered::Recovered(my_context ctx)
     pg->state_clear(PG_STATE_FORCED_BACKFILL | PG_STATE_FORCED_RECOVERY);
     pg->publish_stats_to_osd();
   }
-
-  // trim pglog on recovered
-  pg->trim_log();
 
   // adjust acting set?  (e.g. because backfill completed...)
   bool history_les_bound = false;

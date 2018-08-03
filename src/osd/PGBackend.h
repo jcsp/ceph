@@ -234,7 +234,8 @@ typedef std::shared_ptr<const OSDMap> OSDMapRef;
        const eversion_t &trim_to,
        const eversion_t &roll_forward_to,
        bool transaction_applied,
-       ObjectStore::Transaction &t) = 0;
+       ObjectStore::Transaction &t,
+       bool async = false) = 0;
 
      virtual void pgb_set_object_snap_mapping(
        const hobject_t &soid,
@@ -575,7 +576,8 @@ typedef std::shared_ptr<const OSDMap> OSDMapRef;
      const map<pg_shard_t,ScrubMap*> &maps,
      object_info_t *auth_oi,
      map<pg_shard_t, shard_info_wrapper> &shard_map,
-     inconsistent_obj_wrapper &object_error);
+     inconsistent_obj_wrapper &object_error,
+     bool &digest_match);
    void be_compare_scrubmaps(
      const map<pg_shard_t,ScrubMap*> &maps,
      const set<hobject_t> &master_set,

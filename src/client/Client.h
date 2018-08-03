@@ -381,10 +381,10 @@ protected:
   void handle_client_reply(MClientReply *reply);
   bool is_dir_operation(MetaRequest *request);
 
-  bool   initialized;
-  bool   mounted;
-  bool   unmounting;
-  bool   blacklisted;
+  bool   initialized = false;
+  bool   mounted = false;
+  bool   unmounting = false;
+  bool   blacklisted = false;
 
   // When an MDS has sent us a REJECT, remember that and don't
   // contact it again.  Remember which inst rejected us, so that
@@ -492,8 +492,9 @@ protected:
   void put_inode(Inode *in, int n=1);
   void close_dir(Dir *dir);
 
+  void _abort_mds_sessions(int err);
   // same as unmount() but for when the client_lock is already held
-  void _unmount();
+  void _unmount(bool abort);
 
   friend class C_Client_FlushComplete; // calls put_inode()
   friend class C_Client_CacheInvalidate;  // calls ino_invalidate_cb
@@ -847,6 +848,7 @@ private:
   int _getlk(Fh *fh, struct flock *fl, uint64_t owner);
   int _setlk(Fh *fh, struct flock *fl, uint64_t owner, int sleep);
   int _flock(Fh *fh, int cmd, uint64_t owner);
+  int _lazyio(Fh *fh, int enable);
 
   int get_or_create(Inode *dir, const char* name,
 		    Dentry **pdn, bool expect_null=false);
@@ -953,6 +955,7 @@ public:
   int mount(const std::string &mount_root, const UserPerm& perms,
 	    bool require_mds=false);
   void unmount();
+  void abort_conn();
 
   int mds_command(
     const std::string &mds_spec,
@@ -1048,6 +1051,11 @@ public:
 	     const UserPerm& perms);
   int utime(const char *path, struct utimbuf *buf, const UserPerm& perms);
   int lutime(const char *path, struct utimbuf *buf, const UserPerm& perms);
+  int futime(int fd, struct utimbuf *buf, const UserPerm& perms);
+  int utimes(const char *relpath, struct timeval times[2], const UserPerm& perms);
+  int lutimes(const char *relpath, struct timeval times[2], const UserPerm& perms);
+  int futimes(int fd, struct timeval times[2], const UserPerm& perms);
+  int futimens(int fd, struct timespec times[2], const UserPerm& perms);
   int flock(int fd, int operation, uint64_t owner);
   int truncate(const char *path, loff_t size, const UserPerm& perms);
 
@@ -1101,6 +1109,7 @@ public:
   int64_t drop_caches();
 
   // hpc lazyio
+  int lazyio(int fd, int enable);
   int lazyio_propogate(int fd, loff_t offset, size_t count);
   int lazyio_synchronize(int fd, loff_t offset, size_t count);
 
@@ -1227,11 +1236,12 @@ public:
   int ll_flush(Fh *fh);
   int ll_fsync(Fh *fh, bool syncdataonly);
   int ll_sync_inode(Inode *in, bool syncdataonly);
-  int ll_fallocate(Fh *fh, int mode, loff_t offset, loff_t length);
+  int ll_fallocate(Fh *fh, int mode, int64_t offset, int64_t length);
   int ll_release(Fh *fh);
   int ll_getlk(Fh *fh, struct flock *fl, uint64_t owner);
   int ll_setlk(Fh *fh, struct flock *fl, uint64_t owner, int sleep);
   int ll_flock(Fh *fh, int cmd, uint64_t owner);
+  int ll_lazyio(Fh *fh, int enable);
   int ll_file_layout(Fh *fh, file_layout_t *layout);
   void ll_interrupt(void *d);
   bool ll_handle_umask() {
@@ -1250,7 +1260,7 @@ public:
   int test_dentry_handling(bool can_invalidate);
 
   const char** get_tracked_conf_keys() const override;
-  void handle_conf_change(const md_config_t *conf,
+  void handle_conf_change(const ConfigProxy& conf,
 	                          const std::set <std::string> &changed) override;
   uint32_t get_deleg_timeout() { return deleg_timeout; }
   int set_deleg_timeout(uint32_t timeout);

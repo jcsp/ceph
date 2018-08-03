@@ -29,8 +29,8 @@
 #include "MDSMap.h"
 #include "SessionMap.h"
 #include "MDCache.h"
-#include "Migrator.h"
 #include "MDLog.h"
+#include "MDSContext.h"
 #include "PurgeQueue.h"
 #include "osdc/Journaler.h"
 
@@ -221,10 +221,10 @@ class MDSRank {
 
     void handle_write_error(int err);
 
-    void handle_conf_change(const md_config_t *conf,
+    void handle_conf_change(const ConfigProxy& conf,
                             const std::set <std::string> &changed)
     {
-      mdcache->migrator->handle_conf_change(conf, changed, *mdsmap);
+      mdcache->handle_conf_change(conf, changed, *mdsmap);
       purge_queue.handle_conf_change(conf, changed, *mdsmap);
     }
 
@@ -249,7 +249,7 @@ class MDSRank {
     } progress_thread;
 
     list<Message*> waiting_for_nolaggy;
-    list<MDSInternalContextBase*> finished_queue;
+    MDSInternalContextBase::vec finished_queue;
     // Dispatch, retry, queues
     int dispatch_depth;
     void inc_dispatch_depth() { ++dispatch_depth; }
@@ -267,11 +267,11 @@ class MDSRank {
 
     ceph_tid_t last_tid;    // for mds-initiated requests (e.g. stray rename)
 
-    list<MDSInternalContextBase*> waiting_for_active, waiting_for_replay, waiting_for_reconnect, waiting_for_resolve;
-    list<MDSInternalContextBase*> waiting_for_any_client_connection;
-    list<MDSInternalContextBase*> replay_queue;
-    map<mds_rank_t, list<MDSInternalContextBase*> > waiting_for_active_peer;
-    map<epoch_t, list<MDSInternalContextBase*> > waiting_for_mdsmap;
+    MDSInternalContextBase::vec waiting_for_active, waiting_for_replay, waiting_for_reconnect, waiting_for_resolve;
+    MDSInternalContextBase::vec waiting_for_any_client_connection;
+    MDSInternalContextBase::que replay_queue;
+    map<mds_rank_t, MDSInternalContextBase::vec > waiting_for_active_peer;
+    map<epoch_t, MDSInternalContextBase::vec > waiting_for_mdsmap;
 
     epoch_t osd_epoch_barrier;
 
@@ -301,8 +301,10 @@ class MDSRank {
       finished_queue.push_back(c);
       progress_thread.signal();
     }
-    void queue_waiters(std::list<MDSInternalContextBase*>& ls) {
-      finished_queue.splice( finished_queue.end(), ls );
+    void queue_waiters(MDSInternalContextBase::vec& ls) {
+      MDSInternalContextBase::vec v;
+      v.swap(ls);
+      finished_queue.insert(finished_queue.end(), v.begin(), v.end());
       progress_thread.signal();
     }
 
@@ -405,7 +407,7 @@ class MDSRank {
       waiting_for_mdsmap[e].push_back(c);
     }
     void enqueue_replay(MDSInternalContextBase *c) {
-      replay_queue.push_back(c);
+      replay_queue.push(c);
     }
 
     bool queue_one_replay();
@@ -433,7 +435,7 @@ class MDSRank {
     }
 
     bool evict_client(int64_t session_id, bool wait, bool blacklist,
-                      std::stringstream& ss, Context *on_killed=nullptr);
+                      std::ostream& ss, Context *on_killed=nullptr);
 
     void mark_base_recursively_scrubbed(inodeno_t ino);
 
@@ -458,7 +460,7 @@ class MDSRank {
         std::ostream &ss,
         Formatter *f);
     int _command_export_dir(std::string_view path, mds_rank_t dest);
-    int _command_flush_journal(std::stringstream *ss);
+    int _command_flush_journal(std::ostream& ss);
     CDir *_command_dirfrag_get(
         const cmdmap_t &cmdmap,
         std::ostream &ss);

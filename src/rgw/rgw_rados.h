@@ -2320,6 +2320,9 @@ class RGWRados : public AdminSocketHook
   librados::IoCtx control_pool_ctx;   // .rgw.control
   bool watch_initialized;
 
+  double inject_notify_timeout_probability = 0;
+  unsigned max_notify_retries = 0;
+
   friend class RGWWatcher;
 
   Mutex bucket_id_lock;
@@ -2853,7 +2856,7 @@ public:
         int flags;
         const char *if_match;
         const char *if_nomatch;
-        uint64_t olh_epoch;
+        std::optional<uint64_t> olh_epoch;
         ceph::real_time delete_at;
         bool canceled;
         const string *user_data;
@@ -2863,7 +2866,7 @@ public:
 
         MetaParams() : mtime(NULL), rmattrs(NULL), data(NULL), manifest(NULL), ptag(NULL),
                  remove_objs(NULL), category(RGW_OBJ_CATEGORY_MAIN), flags(0),
-                 if_match(NULL), if_nomatch(NULL), olh_epoch(0), canceled(false), user_data(nullptr), zones_trace(nullptr),
+                 if_match(NULL), if_nomatch(NULL), canceled(false), user_data(nullptr), zones_trace(nullptr),
                  modify_tail(false),  completeMultipart(false) {}
       } meta;
 
@@ -3190,7 +3193,7 @@ public:
                        bool copy_if_newer,
                        map<string, bufferlist>& attrs,
                        RGWObjCategory category,
-                       uint64_t olh_epoch,
+                       std::optional<uint64_t> olh_epoch,
 		       ceph::real_time delete_at,
                        string *version_id,
                        string *ptag,
@@ -3391,7 +3394,9 @@ public:
                             const rgw_obj& obj_instance, bool delete_marker,
                             const string& op_tag, struct rgw_bucket_dir_entry_meta *meta,
                             uint64_t olh_epoch,
-                            ceph::real_time unmod_since, bool high_precision_time, rgw_zone_set *zones_trace = nullptr);
+                            ceph::real_time unmod_since, bool high_precision_time,
+                            rgw_zone_set *zones_trace = nullptr,
+                            bool log_data_change = false);
   int bucket_index_unlink_instance(const RGWBucketInfo& bucket_info, const rgw_obj& obj_instance, const string& op_tag, const string& olh_tag, uint64_t olh_epoch, rgw_zone_set *zones_trace = nullptr);
   int bucket_index_read_olh_log(const RGWBucketInfo& bucket_info, RGWObjState& state, const rgw_obj& obj_instance, uint64_t ver_marker,
                                 map<uint64_t, vector<rgw_bucket_olh_log_entry> > *log, bool *is_truncated);
@@ -3402,7 +3407,8 @@ public:
                     uint64_t *plast_ver, rgw_zone_set *zones_trace = nullptr);
   int update_olh(RGWObjectCtx& obj_ctx, RGWObjState *state, const RGWBucketInfo& bucket_info, const rgw_obj& obj, rgw_zone_set *zones_trace = nullptr);
   int set_olh(RGWObjectCtx& obj_ctx, RGWBucketInfo& bucket_info, const rgw_obj& target_obj, bool delete_marker, rgw_bucket_dir_entry_meta *meta,
-              uint64_t olh_epoch, ceph::real_time unmod_since, bool high_precision_time, rgw_zone_set *zones_trace = nullptr);
+              uint64_t olh_epoch, ceph::real_time unmod_since, bool high_precision_time,
+              rgw_zone_set *zones_trace = nullptr, bool log_data_change = false);
   int unlink_obj_instance(RGWObjectCtx& obj_ctx, RGWBucketInfo& bucket_info, const rgw_obj& target_obj,
                           uint64_t olh_epoch, rgw_zone_set *zones_trace = nullptr);
 
@@ -3430,6 +3436,9 @@ public:
   int init_watch();
   void finalize_watch();
   int distribute(const string& key, bufferlist& bl);
+private:
+  int robust_notify(const string& notify_oid, bufferlist& bl);
+public:
   virtual int watch_cb(uint64_t notify_id,
 		       uint64_t cookie,
 		       uint64_t notifier_id,
@@ -3639,7 +3648,7 @@ public:
 
   int list_gc_objs(int *index, string& marker, uint32_t max, bool expired_only, std::list<cls_rgw_gc_obj_info>& result, bool *truncated);
   int process_gc(bool expired_only);
-  int process_expire_objects();
+  bool process_expire_objects();
   int defer_gc(void *ctx, const RGWBucketInfo& bucket_info, const rgw_obj& obj);
 
   int process_lc();
@@ -3893,7 +3902,7 @@ public:
 
   void init(RGWRados *store) {
     store->register_chained_cache(this);
-    expiry = std::chrono::seconds(store->ctx()->_conf->get_val<uint64_t>(
+    expiry = std::chrono::seconds(store->ctx()->_conf.get_val<uint64_t>(
 				    "rgw_cache_expiry_interval"));
   }
 
@@ -4045,7 +4054,7 @@ class RGWPutObjProcessor_Atomic : public RGWPutObjProcessor_Aio
   uint64_t max_chunk_size;
 
   bool versioned_object;
-  uint64_t olh_epoch;
+  std::optional<uint64_t> olh_epoch;
   string version_id;
 
 protected:
@@ -4082,7 +4091,6 @@ public:
                                 data_ofs(0),
                                 max_chunk_size(0),
                                 versioned_object(versioned),
-                                olh_epoch(0),
                                 bucket(_b),
                                 obj_str(_o),
                                 unique_tag(_t) {}

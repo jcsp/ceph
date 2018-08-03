@@ -19,6 +19,7 @@
 #include "PyModule.h"
 
 #include "common/debug.h"
+#include "common/errno.h"
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_mgr
 
@@ -337,7 +338,7 @@ int PyModule::load(PyThreadState *pMainThreadState)
 #endif
       // Configure sys.path to include mgr_module_path
       string paths = (":" + get_site_packages() +
-		      ":" + g_conf->get_val<std::string>("mgr_module_path"));
+		      ":" + g_conf().get_val<std::string>("mgr_module_path"));
 #if PY_MAJOR_VERSION >= 3
       wstring sys_path(Py_GetPath() + wstring(begin(paths), end(paths)));
       PySys_SetPath(const_cast<wchar_t*>(sys_path.c_str()));

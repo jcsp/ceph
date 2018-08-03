@@ -53,6 +53,9 @@ public:
   void finish(int r) override {
     ida->save_2(r, version);
   }
+  void print(ostream& out) const override {
+    out << "table_save(" << ida->table_name << ")";
+  }
 };
 
 void MDSTable::save(MDSInternalContextBase *onfinish, version_t v)
@@ -101,13 +104,15 @@ void MDSTable::save_2(int r, version_t v)
   dout(10) << "save_2 v " << v << dendl;
   committed_version = v;
   
-  list<MDSInternalContextBase*> ls;
+  MDSInternalContextBase::vec ls;
   while (!waitfor_save.empty()) {
-    if (waitfor_save.begin()->first > v) break;
-    ls.splice(ls.end(), waitfor_save.begin()->second);
-    waitfor_save.erase(waitfor_save.begin());
+    auto it = waitfor_save.begin();
+    if (it->first > v) break;
+    auto& v = it->second;
+    ls.insert(ls.end(), v.begin(), v.end());
+    waitfor_save.erase(it);
   }
-  finish_contexts(g_ceph_context, ls,0);
+  finish_contexts(g_ceph_context, ls, 0);
 }
 
 
@@ -129,6 +134,9 @@ public:
   C_IO_MT_Load(MDSTable *i, Context *o) : MDSTableIOContext(i), onfinish(o) {}
   void finish(int r) override {
     ida->load_2(r, bl, onfinish);
+  }
+  void print(ostream& out) const override {
+    out << "table_load(" << ida->table_name << ")";
   }
 };
 

@@ -20,6 +20,7 @@
 #include "BaseMgrStandbyModule.h"
 #include "Gil.h"
 #include "MgrContext.h"
+#include "mgr/mgr_commands.h"
 
 #include "ActivePyModules.h"
 
@@ -46,7 +47,7 @@ void PyModuleRegistry::init()
   Py_SetProgramName(const_cast<char*>(PYTHON_EXECUTABLE));
 #endif
   // Add more modules
-  if (g_conf->get_val<bool>("daemonize")) {
+  if (g_conf().get_val<bool>("daemonize")) {
     PyImport_AppendInittab("ceph_logger", PyModule::init_ceph_logger);
   }
   PyImport_AppendInittab("ceph_module", PyModule::init_ceph_module);
@@ -70,9 +71,12 @@ void PyModuleRegistry::init()
   for (const auto& module_name : module_names) {
     dout(1) << "Loading python module '" << module_name << "'" << dendl;
 
+    const bool always_on = always_on_modules.find(module_name) !=
+      always_on_modules.end();
+
     // Everything starts disabled, set enabled flag on module
     // when we see first MgrMap
-    auto mod = std::make_shared<PyModule>(module_name);
+    auto mod = std::make_shared<PyModule>(module_name, always_on);
     int r = mod->load(pMainThreadState);
     if (r != 0) {
       // Don't use handle_pyerror() here; we don't have the GIL
@@ -142,6 +146,10 @@ void PyModuleRegistry::standby_start(MonClient &mc)
   std::set<std::string> failed_modules;
   for (const auto &i : modules) {
     if (!(i.second->is_enabled() && i.second->get_can_run())) {
+      // report always_on modules with a standby mode that won't run
+      if (i.second->is_always_on() && i.second->pStandbyClass) {
+        failed_modules.insert(i.second->get_name());
+      }
       continue;
     }
 
@@ -257,7 +265,7 @@ void PyModuleRegistry::shutdown()
 
 std::set<std::string> PyModuleRegistry::probe_modules() const
 {
-  std::string path = g_conf->get_val<std::string>("mgr_module_path");
+  std::string path = g_conf().get_val<std::string>("mgr_module_path");
 
   DIR *dir = opendir(path.c_str());
   if (!dir) {
@@ -362,6 +370,16 @@ void PyModuleRegistry::get_health_checks(health_check_map_t *checks)
         //   checks (to avoid outputting two health messages about a
         //   module that said can_run=false but we tried running it anyway)
         failed_modules[module->get_name()] = module->get_error_string();
+      }
+    }
+
+    // report failed always_on modules as health errors
+    for (const auto& name : always_on_modules) {
+      if (!active_modules->module_exists(name)) {
+        if (failed_modules.find(name) == failed_modules.end() &&
+            dependency_modules.find(name) == dependency_modules.end()) {
+          failed_modules[name] = "Unknown error";
+        }
       }
     }
 

@@ -533,7 +533,7 @@ private:
     double abs_skew = std::fabs(skew_bound);
     if (abs)
       *abs = abs_skew;
-    return (abs_skew > g_conf->mon_clock_drift_allowed);
+    return (abs_skew > g_conf()->mon_clock_drift_allowed);
   }
 
   /**
@@ -608,42 +608,42 @@ public:
   /**
    * Vector holding the Services serviced by this Monitor.
    */
-  vector<PaxosService*> paxos_service;
+  vector<std::unique_ptr<PaxosService>> paxos_service;
 
   class MDSMonitor *mdsmon() {
-    return (class MDSMonitor *)paxos_service[PAXOS_MDSMAP];
+    return (class MDSMonitor *)paxos_service[PAXOS_MDSMAP].get();
   }
 
   class MonmapMonitor *monmon() {
-    return (class MonmapMonitor *)paxos_service[PAXOS_MONMAP];
+    return (class MonmapMonitor *)paxos_service[PAXOS_MONMAP].get();
   }
 
   class OSDMonitor *osdmon() {
-    return (class OSDMonitor *)paxos_service[PAXOS_OSDMAP];
+    return (class OSDMonitor *)paxos_service[PAXOS_OSDMAP].get();
   }
 
   class AuthMonitor *authmon() {
-    return (class AuthMonitor *)paxos_service[PAXOS_AUTH];
+    return (class AuthMonitor *)paxos_service[PAXOS_AUTH].get();
   }
 
   class LogMonitor *logmon() {
-    return (class LogMonitor*) paxos_service[PAXOS_LOG];
+    return (class LogMonitor*) paxos_service[PAXOS_LOG].get();
   }
 
   class MgrMonitor *mgrmon() {
-    return (class MgrMonitor*) paxos_service[PAXOS_MGR];
+    return (class MgrMonitor*) paxos_service[PAXOS_MGR].get();
   }
 
   class MgrStatMonitor *mgrstatmon() {
-    return (class MgrStatMonitor*) paxos_service[PAXOS_MGRSTAT];
+    return (class MgrStatMonitor*) paxos_service[PAXOS_MGRSTAT].get();
   }
 
   class HealthMonitor *healthmon() {
-    return (class HealthMonitor*) paxos_service[PAXOS_HEALTH];
+    return (class HealthMonitor*) paxos_service[PAXOS_HEALTH].get();
   }
 
   class ConfigMonitor *configmon() {
-    return (class ConfigMonitor*) paxos_service[PAXOS_CONFIG];
+    return (class ConfigMonitor*) paxos_service[PAXOS_CONFIG].get();
   }
 
   friend class Paxos;
@@ -882,11 +882,12 @@ public:
   }
   void dispatch_op(MonOpRequestRef op);
   //mon_caps is used for un-connected messages from monitors
-  MonCap * mon_caps;
+  MonCap mon_caps;
   bool ms_get_authorizer(int dest_type, AuthAuthorizer **authorizer, bool force_new) override;
   bool ms_verify_authorizer(Connection *con, int peer_type,
 			    int protocol, bufferlist& authorizer_data, bufferlist& authorizer_reply,
-			    bool& isvalid, CryptoKey& session_key) override;
+			    bool& isvalid, CryptoKey& session_key,
+			    std::unique_ptr<AuthAuthorizerChallenge> *challenge) override;
   bool ms_handle_reset(Connection *con) override;
   void ms_handle_remote_reset(Connection *con) override {}
   bool ms_handle_refused(Connection *con) override;
@@ -920,7 +921,7 @@ public:
 
   // config observer
   const char** get_tracked_conf_keys() const override;
-  void handle_conf_change(const md_config_t *conf,
+  void handle_conf_change(const ConfigProxy& conf,
                           const std::set<std::string> &changed) override;
 
   void update_log_clients();

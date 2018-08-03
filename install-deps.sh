@@ -23,6 +23,21 @@ export LC_ALL=C # the following is vulnerable to i18n
 
 ARCH=`uname -m`
 
+if [ -n "$WITH_SEASTAR" ]; then
+    with_seastar=true
+else
+    with_seastar=false
+fi
+
+function install_seastar_deps {
+    if $with_seastar; then
+        $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              ragel libc-ares-dev libhwloc-dev libnuma-dev libpciaccess-dev \
+              libcrypto++-dev libgnutls28-dev libsctp-dev libprotobuf-dev \
+              protobuf-compiler systemtap-sdt-dev libyaml-cpp-dev
+    fi
+}
+
 function munge_ceph_spec_in {
     local OUTFILE=$1
     sed -e 's/@//g' -e 's/%bcond_with make_check/%bcond_without make_check/g' < ceph.spec.in > $OUTFILE
@@ -30,6 +45,9 @@ function munge_ceph_spec_in {
         sed -i -e 's/%bcond_with python2/%bcond_without python2/g' $OUTFILE
     else
         sed -i -e 's/%bcond_without python2/%bcond_with python2/g' $OUTFILE
+    fi
+    if $with_seastar; then
+        sed -i -e 's/%bcond_with seastar/%bcond_without seastar/g' $OUTFILE
     fi
 }
 
@@ -51,9 +69,23 @@ deb [arch=amd64] http://mirror.cs.uchicago.edu/ubuntu-toolchain-r $dist main
 deb [arch=amd64,i386] http://mirror.yandex.ru/mirrors/launchpad/ubuntu-toolchain-r $dist main
 EOF
 	# import PPA's signing key into APT's keyring
-	$SUDO apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 1E9377A2BA9EF27F
-	$SUDO apt-get -y update -o Acquire::Languages=none -o Acquire::Translation=none || true
-	$SUDO apt-get install -y g++-7
+	cat << ENDOFKEY | $SUDO apt-key add -
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: SKS 1.1.6
+Comment: Hostname: keyserver.ubuntu.com
+
+mI0ESuBvRwEEAMi4cDba7xlKaaoXjO1n1HX8RKrkW+HEIl79nSOSJyvzysajs7zUow/OzCQp
+9NswqrDmNuH1+lPTTRNAGtK8r2ouq2rnXT1mTl23dpgHZ9spseR73s4ZBGw/ag4bpU5dNUSt
+vfmHhIjVCuiSpNn7cyy1JSSvSs3N2mxteKjXLBf7ABEBAAG0GkxhdW5jaHBhZCBUb29sY2hh
+aW4gYnVpbGRziLYEEwECACAFAkrgb0cCGwMGCwkIBwMCBBUCCAMEFgIDAQIeAQIXgAAKCRAe
+k3eiup7yfzGKA/4xzUqNACSlB+k+DxFFHqkwKa/ziFiAlkLQyyhm+iqz80htRZr7Ls/ZRYZl
+0aSU56/hLe0V+TviJ1s8qdN2lamkKdXIAFfavA04nOnTzyIBJ82EAUT3Nh45skMxo4z4iZMN
+msyaQpNl/m/lNtOLhR64v5ZybofB2EWkMxUzX8D/FQ==
+=LcUQ
+-----END PGP PUBLIC KEY BLOCK-----
+ENDOFKEY
+	$SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -y -o Acquire::Languages=none -o Acquire::Translation=none || true
+	$SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y g++-7
     fi
 
     case $dist in
@@ -196,6 +228,7 @@ else
 	# work is done
 	$SUDO env DEBIAN_FRONTEND=noninteractive mk-build-deps --install --remove --tool="apt-get -y --no-install-recommends $backports" $control || exit 1
 	$SUDO env DEBIAN_FRONTEND=noninteractive apt-get -y remove ceph-build-deps
+	install_seastar_deps
 	if [ -n "$backports" ] ; then rm $control; fi
         ;;
     centos|fedora|rhel|ol|virtuozzo)
@@ -259,7 +292,7 @@ else
 	fi
         ! grep -q -i error: $DIR/yum-builddep.out || exit 1
         ;;
-    opensuse|suse|sles|opensuse-tumbleweed)
+    opensuse*|suse|sles)
         echo "Using zypper to install dependencies"
         zypp_install="zypper --gpg-auto-import-keys --non-interactive install --no-recommends"
         $SUDO $zypp_install lsb-release systemd-rpm-macros
