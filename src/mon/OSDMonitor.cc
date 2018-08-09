@@ -7128,8 +7128,11 @@ int OSDMonitor::prepare_command_pool_set(const cmdmap_t& cmdmap,
 
 int OSDMonitor::prepare_command_pool_application(const string &prefix,
                                                  const cmdmap_t& cmdmap,
-                                                 stringstream& ss)
+                                                 stringstream& ss,
+                                                 bool *modified)
 {
+  assert(modified != nullptr);
+
   string pool_name;
   cmd_getval_throws(cct, cmdmap, "pool", pool_name);
   int64_t pool = osdmap.lookup_pg_pool_name(pool_name.c_str());
@@ -7289,6 +7292,7 @@ int OSDMonitor::prepare_command_pool_application(const string &prefix,
 
   p.last_change = pending_inc.epoch;
   pending_inc.new_pools[pool] = p;
+  *modified = true;
   return 0;
 }
 
@@ -11800,16 +11804,15 @@ bool OSDMonitor::prepare_command_impl(MonOpRequestRef op,
              prefix == "osd pool application disable" ||
              prefix == "osd pool application set" ||
              prefix == "osd pool application rm") {
-    err = prepare_command_pool_application(prefix, cmdmap, ss);
-    if (err == -EAGAIN)
+    bool modified = false;
+    err = prepare_command_pool_application(prefix, cmdmap, ss, &modified);
+    if (err == -EAGAIN) {
       goto wait;
-    if (err < 0)
+    } else if (err < 0 || !modified) {
       goto reply;
-
-    getline(ss, rs);
-    wait_for_finished_proposal(
-      op, new Monitor::C_Command(mon, op, 0, rs, get_last_committed() + 1));
-    return true;
+    } else {
+      goto update;
+    }
   } else if (prefix == "osd force-create-pg") {
     pg_t pgid;
     string pgidstr;

@@ -630,7 +630,8 @@ public:
                                stringstream& ss);
   int prepare_command_pool_application(const string &prefix,
                                        const cmdmap_t& cmdmap,
-                                       stringstream& ss);
+                                       stringstream& ss,
+                                       bool *modified);
 
   bool handle_osd_timeouts(const utime_t &now,
 			   std::map<int,utime_t> &last_osd_report);
